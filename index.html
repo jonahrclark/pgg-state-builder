@@ -664,12 +664,12 @@
     .dd-item.sel { font-weight: 600; }
     .hire-dur select:disabled { opacity: 0.5; }
     .hire-slider-cost.freeze { color: #1F4E8C; font-weight: 700; }
-    .slider-ticks { position: relative; display: flex; justify-content: space-between; margin: -2px 9px 0 9px; pointer-events: none; }
+    .slider-ticks { position: relative; display: flex; justify-content: space-between; margin: -2px 8.25px 0 8.25px; pointer-events: none; }   /* (the side margins shrink by half the extra tick width, so every tick stays centered where it was) */
     .slider-ticks span:first-child { visibility: hidden; }
     .ico-tie { height: 1.1em !important; vertical-align: -0.2em !important; margin-right: 8px; }
     .ico-rifle { height: 1.25em !important; vertical-align: -0.3em !important; margin-right: 6px; }
     .ico { display: inline-block; height: 1em; width: auto; vertical-align: -0.14em; margin-right: 8px; fill: currentColor; }
-    .slider-ticks span { display: block; width: 3px; height: 11px; background: var(--ink-black); }
+    .slider-ticks span { display: block; width: 4.5px; height: 11px; background: var(--ink-black); }   /* a tick line is 4.5px wide (it was 3px) */
     input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; background: transparent; cursor: pointer; }
     input[type=range]:disabled { opacity: 0.45; cursor: not-allowed; }
     input[type=range]::-webkit-slider-runnable-track { height: 3px; background: var(--ink-black); }
@@ -1050,7 +1050,7 @@
           <div class="hire-btn-row">
             <div class="hire-slider-block btn-with-tooltip-wrap">
               <label class="hire-slider-label" for="sliderHireBur">Hire per month: <strong id="valHireBur" class="tabular-num">0 (freeze)</strong></label>
-              <div class="slider-wrap"><input type="range" id="sliderHireBur" min="0" max="11" step="1" value="0"><div class="slider-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><svg class="snow" viewBox="-12 -12 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10"><path d="M0 0V-7" transform="rotate(0)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(0)"/><path d="M0 0V-7" transform="rotate(60)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(60)"/><path d="M0 0V-7" transform="rotate(120)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(120)"/><path d="M0 0V-7" transform="rotate(180)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(180)"/><path d="M0 0V-7" transform="rotate(240)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(240)"/><path d="M0 0V-7" transform="rotate(300)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(300)"/></g></svg></div>
+              <div class="slider-wrap"><input type="range" id="sliderHireBur" min="0" max="6" step="1" value="0"><div class="slider-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><svg class="snow" viewBox="-12 -12 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10"><path d="M0 0V-7" transform="rotate(0)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(0)"/><path d="M0 0V-7" transform="rotate(60)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(60)"/><path d="M0 0V-7" transform="rotate(120)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(120)"/><path d="M0 0V-7" transform="rotate(180)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(180)"/><path d="M0 0V-7" transform="rotate(240)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(240)"/><path d="M0 0V-7" transform="rotate(300)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(300)"/></g></svg></div>
               <div class="hire-dur"><label for="durHireBur">For</label><select id="durHireBur"><option value="0">Indefinitely</option><option value="3">3 months</option><option value="6">6 months</option><option value="12">12 months</option><option value="-1">As long as the budget allows</option></select></div>
               <div id="costHireBur" class="hire-slider-cost">Hiring freeze</div>
               <div id="drainHireBur" class="hire-drain"></div>
@@ -1072,7 +1072,7 @@
           <div class="hire-btn-row">
             <div class="hire-slider-block btn-with-tooltip-wrap">
               <label class="hire-slider-label" for="sliderHirePol">Hire per month: <strong id="valHirePol" class="tabular-num">0 (freeze)</strong></label>
-              <div class="slider-wrap"><input type="range" id="sliderHirePol" min="0" max="11" step="1" value="0"><div class="slider-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><svg class="snow" viewBox="-12 -12 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10"><path d="M0 0V-7" transform="rotate(0)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(0)"/><path d="M0 0V-7" transform="rotate(60)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(60)"/><path d="M0 0V-7" transform="rotate(120)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(120)"/><path d="M0 0V-7" transform="rotate(180)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(180)"/><path d="M0 0V-7" transform="rotate(240)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(240)"/><path d="M0 0V-7" transform="rotate(300)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(300)"/></g></svg></div>
+              <div class="slider-wrap"><input type="range" id="sliderHirePol" min="0" max="6" step="1" value="0"><div class="slider-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><svg class="snow" viewBox="-12 -12 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10"><path d="M0 0V-7" transform="rotate(0)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(0)"/><path d="M0 0V-7" transform="rotate(60)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(60)"/><path d="M0 0V-7" transform="rotate(120)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(120)"/><path d="M0 0V-7" transform="rotate(180)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(180)"/><path d="M0 0V-7" transform="rotate(240)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(240)"/><path d="M0 0V-7" transform="rotate(300)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(300)"/></g></svg></div>
               <div class="hire-dur"><label for="durHirePol">For</label><select id="durHirePol"><option value="0">Indefinitely</option><option value="3">3 months</option><option value="6">6 months</option><option value="12">12 months</option><option value="-1">As long as the budget allows</option></select></div>
               <div id="costHirePol" class="hire-slider-cost">Hiring freeze</div>
               <div id="drainHirePol" class="hire-drain"></div>
@@ -1094,7 +1094,7 @@
           <div class="hire-btn-row">
             <div class="hire-slider-block btn-with-tooltip-wrap">
               <label class="hire-slider-label" for="sliderHireSol">Hire per month: <strong id="valHireSol" class="tabular-num">0 (freeze)</strong></label>
-              <div class="slider-wrap"><input type="range" id="sliderHireSol" min="0" max="11" step="1" value="0"><div class="slider-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><svg class="snow" viewBox="-12 -12 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10"><path d="M0 0V-7" transform="rotate(0)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(0)"/><path d="M0 0V-7" transform="rotate(60)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(60)"/><path d="M0 0V-7" transform="rotate(120)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(120)"/><path d="M0 0V-7" transform="rotate(180)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(180)"/><path d="M0 0V-7" transform="rotate(240)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(240)"/><path d="M0 0V-7" transform="rotate(300)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(300)"/></g></svg></div>
+              <div class="slider-wrap"><input type="range" id="sliderHireSol" min="0" max="6" step="1" value="0"><div class="slider-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><svg class="snow" viewBox="-12 -12 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10"><path d="M0 0V-7" transform="rotate(0)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(0)"/><path d="M0 0V-7" transform="rotate(60)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(60)"/><path d="M0 0V-7" transform="rotate(120)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(120)"/><path d="M0 0V-7" transform="rotate(180)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(180)"/><path d="M0 0V-7" transform="rotate(240)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(240)"/><path d="M0 0V-7" transform="rotate(300)"/><path d="M-3.1 -10.4L0 -7L3.1 -10.4" transform="rotate(300)"/></g></svg></div>
               <div class="hire-dur"><label for="durHireSol">For</label><select id="durHireSol"><option value="0">Indefinitely</option><option value="3">3 months</option><option value="6">6 months</option><option value="12">12 months</option><option value="-1">As long as the budget allows</option></select></div>
               <div id="costHireSol" class="hire-slider-cost">Hiring freeze</div>
               <div id="drainHireSol" class="hire-drain"></div>
@@ -1371,7 +1371,7 @@
       },
 
       // Monthly hiring sliders: personnel hired every month, per group (0 is a hiring freeze)
-      HIRING: { maxPerMonth: 5000, step: 500 },
+      HIRING: { maxPerMonth: 2500, step: 500 },
 
       // Staffing weight of each group, per 1K people
       CAPACITY_SCORE_PER_1K: {
@@ -2468,8 +2468,8 @@
       state.popupQueue.push({ reason: 'coup', group: top, party, autHit, cancelledElection });
     }
 
-    // Hiring slider notches: freeze, "maintain" (replaces attrition), then 500 per notch up to 5,000
-    const HIRE_STEPS = [0, -1, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000];
+    // Hiring slider notches: freeze (the snowflake), "maintain" (replaces attrition), then 500 per notch up to 2,500. Six tick lines are drawn (the snowflake has none).
+    const HIRE_STEPS = [0, -1, 500, 1000, 1500, 2000, 2500];
 
     function posFromHireValue(v) { return Math.max(0, HIRE_STEPS.indexOf(v)); }
 
@@ -8813,7 +8813,7 @@
       }
     }
   </script>
-<!-- Each release: change the version in the span below (id="gameVersion") to match the file name, e.g. building-a-state-v68.html -->
-<div class="copyright"><span id="gameVersion" class="game-version">v68</span><span class="copyright-text">© Jonah Clark, Comp Sci High 2026</span></div>
+<!-- Each release: change the version in the span below (id="gameVersion") to match the file name, e.g. building-a-state-v70.html -->
+<div class="copyright"><span id="gameVersion" class="game-version">v70</span><span class="copyright-text">© Jonah Clark, Comp Sci High 2026</span></div>
 </body>
 </html>
