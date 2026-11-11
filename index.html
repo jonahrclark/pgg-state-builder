@@ -524,8 +524,9 @@
     @keyframes boxBlink { 0%, 49.9% { border-color: var(--oxblood-red); } 50%, 100% { border-color: transparent; } }
     .fine { font-size: 16px; font-style: italic; }
     .eff-net { font-weight: bold; border-bottom: 1px solid var(--ink-black); padding-bottom: 3px; margin-bottom: 3px; }
-    /* a group on strike: its numbers are grayed out */
-    .personnel-col.on-strike .personnel-count, .personnel-col.on-strike .hire-slider-label strong { color: #A39D8C; }
+    /* a group on strike: its numbers are grayed out and struck through in red */
+    .personnel-col.on-strike .personnel-count, .personnel-col.on-strike .hire-slider-label strong { color: #A39D8C; text-decoration: line-through; text-decoration-color: var(--oxblood-red); text-decoration-thickness: 2px; }
+    .personnel-col.on-strike .personnel-count { text-decoration-thickness: 4px; }   /* the big headcount gets a bolder red strike */
     .growth-rank { display: flex; align-items: center; gap: 18px; margin-top: 14px; }
     .growth-grade { font-family: var(--font-display); font-size: 54px; font-weight: 700; line-height: 1; min-width: 86px; text-align: center; border: 2px solid var(--ink-black); padding: 6px 4px; }
     .growth-grade.good { color: var(--deep-green); }
@@ -1145,6 +1146,10 @@
             <td>Strike Losses (union strikes)</td>
             <td id="ledgerStrike" class="align-right text-red">-$0.0M</td>
           </tr>
+          <tr id="rowForeign" style="display:none;">
+            <td>Foreign Commitments (pacts and missions abroad)</td>
+            <td id="ledgerForeign" class="align-right text-red">-$0.0M</td>
+          </tr>
           <tr id="rowHiring" style="display:none;">
             <td>Hiring and Training (set by the sliders)</td>
             <td id="ledgerHiring" class="align-right text-red">-$0.0M</td>
@@ -1494,6 +1499,9 @@
         bailoutCapacityHit: 5,     // doing nothing, or failing, costs the treasury in full and this much capacity (but no autonomy)
         meltdownCapacityHit: 10,   // a failed nuclear meltdown response costs this much capacity (and nothing else)
         disasterCapacityHit: 3,    // a failed disaster or disease also costs this much capacity: we could not reach many citizens
+        // Giving in costs the base damage above. TRYING and failing costs more, and a different kind of thing: the main loss is `attemptFailMult` times
+        // bigger (at least one point more), the failed operation wastes `wastedShare` of what a success would have cost (only when the crisis itself does not already drain the treasury), and some responders are lost.
+        attemptFailMult: 1.25, wastedShare: 0.25,
         // A failure hurts ONE thing, chosen to fit the kind of crisis: autonomy, population, treasury, staff (lowers capacity) or tax collection
         damage: { autonomy: 3.9, populationPct: 0.004, treasury: 12000000, staffPct: 0.05, efficiencyPts: 8 }
       },
@@ -1518,13 +1526,24 @@
       // Government Overreach: once the state is capable (capacity past startCapacity), it starts to meddle in citizens' lives.
       // Silencing dissenters adds "heat" (up to heatMax) that fades by heatDecay a month: each point makes protest, trade union, rebel,
       // legitimacy and overreach events oddsPerHeat likelier, and takes capPerHeat off the capacity that counts toward success odds.
+      // Foreign Affairs: three one-time incidents (a military pact, a military intervention, a diplomatic corps), each with two versions
+      FOREIGN: {
+        minMonth: 15, weight: 0.4, warBoost: 2.2,   // an incident category's weight; a civil war makes the intervention offer much likelier
+        allianceLow:  { declineCap: 10, acceptCap: 4, aut: -0.2, months: 30 },                       // a powerful neighbor dictates the terms (capacity under 55)
+        allianceHigh: { declineCap: 4, aut: 0.1, months: 24, costShare: 0.04 },                      // we dictate the terms to a weak neighbor (capacity over 55); the expense is a share of tax income
+        warHelp:      { declineCap: 4, soldiers: 500, aut: -0.3 },                                   // a neighbor offers to fight in our civil war
+        lendHand:     { declineAut: 2, soldiers: -500, months: 24, cap: 0.1, capMonths: 12, payoffCap: 6 },   // we send soldiers abroad; the veterans return and "Foreign Aid Pays Off"
+        corpsLow:     { declineCap: 6, cap: 0.15, aut: -0.15, months: 30 },                          // a powerful neighbor trains our civil servants
+        corpsHigh:    { bureaucrats: -500, months: 24, aut: 0.15 }                                   // we train a weak neighbor's civil servants
+      },
       // Opposition Leader Flees -> Democratic Backsliding -> (Strong Institutions, or Government in Exile -> a coup)
       DEMOCRACY: {
         oppositionDelay: [4, 14], backslideDelay: [6, 18],   // months after the second rigged election / after the flight
         backslideStart: 50, exileStart: 30, exileMonths: 36,   // the exile claim lasts a little longer than before (it was 30 months)
         fill: [7, 14], ease: [3, 7],                          // how far a bar moves each time (ease is the smaller one)
         exileFill: [10, 19],                                  // the exile claim fills faster than backsliding does
-        exileAutonomyHit: 15,
+        fillHeat: 1,                                          // when Democratic Backsliding fills, every kind of heat (dissent, cholera, atrocities) rises by this much
+        exileAutonomyShare: 0.5,   // when the exiled government takes over, we lose this share of our current autonomy
         goodMonths: 36, strongCap: 0.06, receptiveAut: 0.08, oddsCut: 0.04   // the modifiers after a backsliding bar empties
       },
       OVERREACH: { legitHeat: 0.5, startCapacity: 55, weight: 0.6, perPoint: 0.045, reformCapacity: 10, influence: 5, censusInfluence: 3, heatMax: 4, heatDecay: 0.05, oddsPerHeat: 0.25, capPerHeat: 0.02 },
@@ -1664,7 +1683,7 @@
       timesTaxesRaised: 0,
       taxUnrestUntil: 0,
       tourismUntil: 0, tourismBoost: 0, peace: null,
-      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, democracy: { oppDue: null, backDue: null, opposition: null, used: false }, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
+      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, foreign: { used: {}, effects: [], payoffDue: null }, democracy: { oppDue: null, backDue: null, opposition: null, used: false }, democracyNote: null, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
       taxRaiseMonths: [],
       taxRaiseCooldown: 0,
       restructureMultiplier: 1.0,
@@ -2129,7 +2148,7 @@
         timesTaxesRaised: 0,
       taxUnrestUntil: 0,
       tourismUntil: 0, tourismBoost: 0, peace: null,
-      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, democracy: { oppDue: null, backDue: null, opposition: null, used: false }, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
+      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, foreign: { used: {}, effects: [], payoffDue: null }, democracy: { oppDue: null, backDue: null, opposition: null, used: false }, democracyNote: null, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
       taxRaiseMonths: [],
         taxRaiseCooldown: 0,
         restructureMultiplier: 1.0,
@@ -2562,7 +2581,19 @@
       return { fin, net: fin.netChange, hire, borrowedHire, shortfall, debtChange: borrowedHire + shortfall, treasuryChange: T - state.treasury };
     }
 
+    let FOREIGN_MOVES_APPLIED = false;
     function calculateFinancesRaw(includeHiring = true) {
+      // Foreign troops and officials arrive or leave at the START of the month, before hiring and payroll: the forecast uses the headcount the month will really have
+      if (includeHiring && !FOREIGN_MOVES_APPLIED) {
+        const mv = foreignMoves();
+        if (mv.bureaucrats || mv.police || mv.soldiers) {
+          const types = ['bureaucrats', 'police', 'soldiers'];
+          types.forEach(t => { state[t] += mv[t]; });
+          FOREIGN_MOVES_APPLIED = true;
+          try { return calculateFinancesRaw(true); }
+          finally { FOREIGN_MOVES_APPLIED = false; types.forEach(t => { state[t] -= mv[t]; }); }
+        }
+      }
       // The month collects at today's rate (the rate drifts at the END of the month), so the forecast uses it too: what the box says is what the treasury does
       const taxIncome = grossTaxIncome();
       const popRatio = state.population / CONFIG.STARTING.population;
@@ -2586,9 +2617,12 @@
       const strikeShare = state.ongoing.filter(i => i.subtype === 'unions').reduce((a, i) => a + CONFIG.UNION_STRIKE_LOSS * (0.6 + 0.4 * i.progress / 100), 0);
       const strikeLoss = taxIncome * strikeShare;
 
-      const netChange = taxIncome - strikeLoss - totalPersonnelUpkeep - operatingCost - debtInterest - hiringCost;
+      // Running expenses of pacts and missions abroad
+      const foreignCost = foreignCostNow(taxIncome);
 
-      return { taxIncome, strikeLoss, totalPersonnelUpkeep, operatingCost, debtInterest, loanInterest: debtInterest, hiringCost, netChange };
+      const netChange = taxIncome - strikeLoss - totalPersonnelUpkeep - operatingCost - debtInterest - hiringCost - foreignCost;
+
+      return { taxIncome, strikeLoss, totalPersonnelUpkeep, operatingCost, debtInterest, loanInterest: debtInterest, hiringCost, foreignCost, netChange };
     }
 
     // Headcount that is actually working. A strike cuts that group's contribution as it escalates.
@@ -2651,7 +2685,7 @@
       if (state.loanAutonomyDecayRate > 0) a -= Math.min(a, state.loanAutonomyDecayRate);
       const pe = PARTY_EFFECTS[state.partyInPower];
       if (pe) a = Math.max(0, Math.min(100, a + pe.aut));
-      a = Math.max(0, Math.min(100, a + aristocracyRates().aut + goodGovRate().aut));
+      a = Math.max(0, Math.min(100, a + aristocracyRates().aut + goodGovRate().aut + foreignRates().aut));
       return a;
     }
 
@@ -2661,6 +2695,7 @@
       if (pe) o += pe.cap;
       o += aristocracyRates().cap;
       o += goodGovRate().cap;
+      o += foreignRates().cap;
       o += displacementRate();
       if (state.capacity > 0) o -= captureDrain(autonomyAtCapacityStep());
       return o;
@@ -3091,6 +3126,11 @@
       if (rStrike) {
         rStrike.style.display = fin.strikeLoss > 0 ? 'table-row' : 'none';
         setTextIfChanged('ledgerStrike', `-${formatMoney(fin.strikeLoss)}`);
+      }
+      const rForeign = document.getElementById('rowForeign');
+      if (rForeign) {
+        rForeign.style.display = fin.foreignCost > 0 ? 'table-row' : 'none';
+        setTextIfChanged('ledgerForeign', `-${formatMoney(fin.foreignCost)}`);
       }
       const rHire = document.getElementById('rowHiring');
       if (rHire) {
@@ -3529,6 +3569,7 @@
       ['cholera', 'atrocity'].forEach(k => { if (state.peaceHeat && state.peaceHeat[k] > 0) state.peaceHeat[k] = Math.max(0, state.peaceHeat[k] - CONFIG.PEACE.heatDecay); });
 
       // 0. Hiring set by the sliders happens first (paid from the treasury, any shortfall becomes debt)
+      applyForeignMovements();   // foreign troops arrive, or our own forces and officials leave for abroad
       const hireSpent = applyMonthlyHiring();   // (paid up front)
       ['bureaucrats', 'police', 'soldiers'].forEach(t => { state.hireLog[t].push(state.lastHired[t]); if (state.hireLog[t].length > 12) state.hireLog[t].shift(); });
 
@@ -3592,6 +3633,9 @@
         const GG = goodGovRate();
         if (GG.cap) { state.capacity = Math.max(0, Math.min(100, state.capacity + GG.cap)); deltaCapMonth += GG.cap; }
         if (GG.aut) { state.autonomy = Math.max(0, Math.min(100, state.autonomy + GG.aut)); deltaAutMonth += GG.aut; }
+        const FR = foreignRates();
+        if (FR.cap) { state.capacity = Math.max(0, Math.min(100, state.capacity + FR.cap)); deltaCapMonth += FR.cap; }
+        if (FR.aut) { state.autonomy = Math.max(0, Math.min(100, state.autonomy + FR.aut)); deltaAutMonth += FR.aut; }
         if (state.aristocracy && state.month - state.aristocracy.start >= state.aristocracy.months) state.aristocracy = null;
       }
 
@@ -3781,6 +3825,7 @@
       rollDefectors();
       rollPeacekeeping();
       rollDemocracy();
+      rollForeign();
       rollScheduled();
       scheduleElectionEvents();
       trackHighStreak();
@@ -4124,6 +4169,7 @@
         ['Pay', personnelBlocked ? 0 : 0.5 * (1 + 2 * overAll) * payUnrest],
         ['Special', specialW],
         ['Crisis', crisisW],
+        ['Foreign', foreignCategoryWeight()],
         ['Overreach', state.month >= 18 && state.capacity > CONFIG.OVERREACH.startCapacity ? CONFIG.OVERREACH.weight * (1 + CONFIG.OVERREACH.perPoint * (state.capacity - CONFIG.OVERREACH.startCapacity)) * heatMult() : 0],
         ['Legitimacy', state.month >= 18 && state.autonomy > 55 ? (CONFIG.LEGITIMACY.weight * (1 + CONFIG.LEGITIMACY.perPoint * (state.autonomy - 55)) + CONFIG.LEGITIMACY.bonus) * legitimacyOddsFactor() * heatMult() : 0],
         ['Strength', state.month >= 24 ? 2.6 * Math.max(0, (Math.min(state.capacity, state.autonomy) - 45) / 55) : 0]
@@ -4256,6 +4302,7 @@
         case 'Strength': return generateStrengthDilemma();
         case 'Legitimacy': return generateLegitimacyEvent();
         case 'Overreach': return generateOverreachEvent();
+        case 'Foreign': return generateForeignEvent();
         case 'Crisis': return retryWithRepeatPenalty(() => generatePoliticalViolenceEvent());
         case 'Social': return fresh(() => generateSocialPressureEvent());
         case 'Protest': return generateSocialPressureEvent('Protesters');
@@ -4984,23 +5031,163 @@
     }
 
     /* ==========================================================================
+       FOREIGN AFFAIRS
+       Military Alliance, Military Intervention and Diplomatic Corps: each comes up once, in the version that fits the state's situation.
+       What they leave behind are "foreign effects": monthly changes to capacity and autonomy, troops or officials arriving or leaving each month,
+       and running expenses on the monthly statement. They end after a set number of months (or with the civil war).
+       ========================================================================== */
+    function foreignActive(e) { return e.untilWar ? !!state.civilWar : state.month < e.end; }
+    function activeForeign() { return (state.foreign ? state.foreign.effects : []).filter(foreignActive); }
+    // Monthly capacity and autonomy from foreign effects, with one row each for the boxes
+    function foreignRates() {
+      let cap = 0, aut = 0;
+      const items = [];
+      activeForeign().forEach(e => { if (e.cap || e.aut) { cap += e.cap || 0; aut += e.aut || 0; items.push(e); } });
+      return { cap, aut, items };
+    }
+    // Troops or officials arriving (+) or leaving (-) at the start of next month (we never drop a group below the minimum)
+    function foreignMoves() {
+      const mv = { bureaucrats: 0, police: 0, soldiers: 0 };
+      activeForeign().forEach(e => { if (e.troops) mv[e.troops.type] += e.troops.n; });
+      ['bureaucrats', 'police', 'soldiers'].forEach(t => { if (mv[t] < 0) mv[t] = -Math.min(-mv[t], Math.max(0, state[t] - CONFIG.MIN_PERSONNEL)); });
+      return mv;
+    }
+    function applyForeignMovements() {
+      const mv = foreignMoves();
+      ['bureaucrats', 'police', 'soldiers'].forEach(t => { if (mv[t]) state[t] += mv[t]; });
+    }
+    // What the foreign commitments cost this month (a share of tax income, or the bill for training replacements)
+    function foreignCostOf(c, taxIncome) {
+      if (!c) return 0;
+      if (c.kind === 'taxShare') return (taxIncome !== undefined ? taxIncome : grossTaxIncome()) * c.share;
+      if (c.kind === 'hire') return hireCostFor(c.type, c.n);
+      return 0;
+    }
+    function foreignCostNow(taxIncome) { return activeForeign().reduce((a, e) => a + foreignCostOf(e.cost, taxIncome), 0); }
+    function addForeignEffect(e) { state.foreign.effects.push(Object.assign({ start: state.month }, e, e.months ? { end: state.month + e.months } : {})); }
+
+    // Called every month: effects expire, and the hidden payoff of lending a helping hand arrives
+    function rollForeign() {
+      const F = state.foreign;
+      if (!F) return;
+      const before = F.effects.length;
+      const went = F.effects.filter(e => e.untilWar && !state.civilWar);
+      F.effects = F.effects.filter(foreignActive);
+      if (went.length) logEntry('The civil war is over, and the foreign troops have gone home.');
+      if (F.payoffDue !== null && state.month >= F.payoffDue) {
+        F.payoffDue = null;
+        state.popupQueue.push({ reason: 'incident', category: 'Foreign Affairs', forcePayoff: true });
+      }
+    }
+
+    function foreignAvailable() {
+      const F = state.foreign, out = [];
+      if (!F || state.month < CONFIG.FOREIGN.minMonth) return out;
+      if (!F.used.alliance) out.push('alliance');
+      if (!F.used.diplomatic) out.push('diplomatic');
+      if (!F.used.intervention && (state.civilWar || !republicCrisis())) out.push('intervention');   // not while a Republic Crisis is brewing but no war yet
+      return out;
+    }
+    function foreignCategoryWeight() {
+      const a = foreignAvailable();
+      if (!a.length) return 0;
+      return CONFIG.FOREIGN.weight * (state.civilWar && a.includes('intervention') ? CONFIG.FOREIGN.warBoost : 1);
+    }
+
+    function generateForeignEvent() {
+      const F = state.foreign, C = CONFIG.FOREIGN;
+      const avail = foreignAvailable();
+      if (!avail.length) return null;
+      const key = state.civilWar && avail.includes('intervention') ? 'intervention' : avail[Math.floor(Math.random() * avail.length)];
+      F.used[key] = true;
+      const strong = state.capacity >= 55;   // below 55 the neighbor is the powerful one; above it, we are
+      const ask = (title, text, options) => ({ category: 'Foreign Affairs', title, body: `${text}<br><br>How should our state respond?`, hint: '', concept: '', options });
+      const loss = n => { state.capacity = Math.max(0, state.capacity - n); triggerDelta('capacity', -n); };
+      const gain = n => { state.capacity = Math.min(100, state.capacity + n); triggerDelta('capacity', n); };
+      const money = m => formatMoney(m);
+
+      if (key === 'alliance' && !strong) {
+        const A = C.allianceLow;
+        return ask('Military Alliance', 'A powerful neighboring state has proposed a defensive military pact. They will dictate the terms of the agreement.', [
+          { label: 'Decline the pact', tip: `Capacity -${A.declineCap}`, handler: () => { loss(A.declineCap); return { title: 'Pact Declined', desc: 'We refuse to sign on their terms. Our neighbor takes offense, and our standing in the region slips.', changes: [{ text: `Capacity -${A.declineCap}`, type: 'neg' }], log: `Outcome: Military alliance declined. Capacity -${A.declineCap}.` }; } },
+          { label: 'Sign the pact', tip: `Capacity +${A.acceptCap}<br>Autonomy ${A.aut}/mo for ${A.months} months`, handler: () => { gain(A.acceptCap); addForeignEffect({ label: 'Military pact', aut: A.aut, months: A.months }); return { title: 'Pact Signed', desc: 'We sign on their terms. Our army trains alongside theirs and our borders are safer, but their ministers now have a say in our decisions.', changes: [{ text: `Capacity +${A.acceptCap}`, type: 'pos' }, { text: `Autonomy ${A.aut} a month for ${A.months} months`, type: 'neg' }], log: 'Outcome: Military alliance signed (powerful neighbor).' }; } }
+        ]);
+      }
+      if (key === 'alliance') {
+        const A = C.allianceHigh, cost = () => foreignCostOf({ kind: 'taxShare', share: A.costShare });
+        return ask('Military Alliance', 'A weak neighboring state has requested a defensive military pact. We will dictate the terms of the agreement.', [
+          { label: 'Decline the request', tip: `Capacity -${A.declineCap}`, handler: () => { loss(A.declineCap); return { title: 'Pact Declined', desc: 'We turn them away. Our neighbor looks elsewhere for protection, and our influence in the region shrinks.', changes: [{ text: `Capacity -${A.declineCap}`, type: 'neg' }], log: `Outcome: Military alliance declined. Capacity -${A.declineCap}.` }; } },
+          { label: 'Dictate the terms', tip: `Autonomy +${A.aut}/mo for ${A.months} months<br>Treasury -${money(cost())}/mo for ${A.months} months`, handler: () => { addForeignEffect({ label: 'Military pact', aut: A.aut, months: A.months, cost: { kind: 'taxShare', share: A.costShare } }); return { title: 'Pact Signed', desc: 'We sign on our terms. Our neighbor leans on us for protection and our officials answer to no one for it, but the upkeep of the pact is a steady drain.', changes: [{ text: `Autonomy +${A.aut} a month for ${A.months} months`, type: 'pos' }, { text: `Treasury -${money(cost())} a month for ${A.months} months`, type: 'neg' }], log: 'Outcome: Military alliance signed (weak neighbor).' }; } }
+        ]);
+      }
+      if (key === 'intervention' && state.civilWar) {
+        const A = C.warHelp;
+        return ask('Military Intervention', 'A neighboring state has offered to intervene in our internal crisis.', [
+          { label: 'We can handle this on our own', tip: `Capacity -${A.declineCap}`, handler: () => { loss(A.declineCap); return { title: 'Help Refused', desc: 'We tell them the war is ours to fight. Our neighbor withdraws the offer, and fighting alone strains our young institutions.', changes: [{ text: `Capacity -${A.declineCap}`, type: 'neg' }], log: `Outcome: Foreign intervention refused. Capacity -${A.declineCap}.` }; } },
+          { label: 'Accept the help', tip: `Soldiers +${A.soldiers}/mo, free<br>Autonomy ${A.aut}/mo until the war ends`, handler: () => { addForeignEffect({ label: 'Foreign troops', untilWar: true, aut: A.aut, troops: { type: 'soldiers', n: A.soldiers } }); return { title: 'Foreign Troops Arrive', desc: 'Foreign troops cross the border to fight beside ours, and new volunteers join our ranks every month. Their commanders expect to be heard in our councils.', changes: [{ text: `Soldiers +${A.soldiers} a month for the rest of the war`, type: 'pos' }, { text: `Autonomy ${A.aut} a month until the war ends`, type: 'neg' }], log: 'Outcome: Foreign intervention accepted.' }; } }
+        ]);
+      }
+      if (key === 'intervention') {
+        const A = C.lendHand, bill = () => foreignCostOf({ kind: 'hire', type: 'soldiers', n: -A.soldiers });
+        return ask('Military Intervention', 'A neighboring state has requested assistance with an internal crisis.', [
+          { label: 'This is none of our business', tip: `Autonomy +${A.declineAut}`, handler: () => { state.autonomy = Math.min(100, state.autonomy + A.declineAut); triggerDelta('autonomy', A.declineAut); return { title: 'We Stay Out of It', desc: 'We stay out of it. Our people approve of a country that minds its own affairs.', changes: [{ text: `Autonomy +${A.declineAut}`, type: 'pos' }], log: `Outcome: Foreign request declined. Autonomy +${A.declineAut}.` }; } },
+          { label: 'Lend a helping hand', tip: `Soldiers ${A.soldiers}/mo for ${A.months} months<br>Treasury -${money(bill())}/mo<br>Capacity +${A.cap}/mo for ${A.capMonths} months`, handler: () => {
+            addForeignEffect({ label: 'Expeditionary force', troops: { type: 'soldiers', n: A.soldiers }, cost: { kind: 'hire', type: 'soldiers', n: -A.soldiers }, months: A.months });
+            addForeignEffect({ label: 'Foreign aid', cap: A.cap, months: A.capMonths });
+            F.payoffDue = state.month + A.months;   // (not mentioned to the player)
+            return { title: 'Soldiers Sent Abroad', desc: 'We send soldiers to help our neighbor restore order. Another detachment leaves every month.', changes: [{ text: `Soldiers ${A.soldiers} a month for ${A.months} months`, type: 'neg' }, { text: `Treasury -${money(bill())} a month`, type: 'neg' }, { text: `Capacity +${A.cap} a month for ${A.capMonths} months`, type: 'pos' }], log: 'Outcome: Soldiers sent to help a neighbor.' };
+          } }
+        ]);
+      }
+      if (key === 'diplomatic' && !strong) {
+        const A = C.corpsLow;
+        return ask('Diplomatic Corps', 'A powerful neighboring state has offered to help train our civil servants. They will set the curriculum.', [
+          { label: 'Decline the offer', tip: `Capacity -${A.declineCap}`, handler: () => { loss(A.declineCap); return { title: 'Offer Declined', desc: 'We decline, and our neighbor withdraws its experts. Our civil servants muddle on without them.', changes: [{ text: `Capacity -${A.declineCap}`, type: 'neg' }], log: `Outcome: Foreign training declined. Capacity -${A.declineCap}.` }; } },
+          { label: 'Accept their training', tip: `Capacity +${A.cap}/mo for ${A.months} months<br>Autonomy ${A.aut}/mo for ${A.months} months`, handler: () => { addForeignEffect({ label: 'Foreign training', cap: A.cap, aut: A.aut, months: A.months }); return { title: 'Training Begins', desc: 'Foreign advisors fill our ministries and teach our clerks. The work improves, but the advisors\' home government hears everything.', changes: [{ text: `Capacity +${A.cap} a month for ${A.months} months`, type: 'pos' }, { text: `Autonomy ${A.aut} a month for ${A.months} months`, type: 'neg' }], log: 'Outcome: Foreign training accepted.' }; } }
+        ]);
+      }
+      const A = C.corpsHigh, bill = () => foreignCostOf({ kind: 'hire', type: 'bureaucrats', n: -A.bureaucrats });
+      return ask('Diplomatic Corps', 'A weak neighboring state has asked for help training its civil servants and directing large projects.', [
+        { label: 'Politely decline', tip: 'No effect', handler: () => ({ title: 'Request Declined', desc: 'We send our regrets. Nothing changes.', changes: [{ text: 'No effect', type: 'note' }], log: 'Outcome: Foreign request declined.' }) },
+        { label: 'Send our experts', tip: `Bureaucrats ${A.bureaucrats}/mo for ${A.months} months<br>Treasury -${money(bill())}/mo<br>Autonomy +${A.aut}/mo for ${A.months} months`, handler: () => { addForeignEffect({ label: 'Diplomatic corps', troops: { type: 'bureaucrats', n: A.bureaucrats }, cost: { kind: 'hire', type: 'bureaucrats', n: -A.bureaucrats }, aut: A.aut, months: A.months }); return { title: 'Experts Sent Abroad', desc: 'Our best officials leave for our neighbor\'s capital, a detachment of administrators every month. Our name is spoken with respect abroad.', changes: [{ text: `Bureaucrats ${A.bureaucrats} a month for ${A.months} months`, type: 'neg' }, { text: `Treasury -${money(bill())} a month`, type: 'neg' }, { text: `Autonomy +${A.aut} a month for ${A.months} months`, type: 'pos' }], log: 'Outcome: Experts sent to help a neighbor.' }; } }
+      ]);
+    }
+
+    // The hidden reward for lending a helping hand, two years later
+    function generateForeignPayoffEvent() {
+      const n = CONFIG.FOREIGN.lendHand.payoffCap;
+      return { category: 'Foreign Affairs', title: 'Foreign Aid Pays Off', body: 'Our soldiers have returned from the conflict abroad with far more tactical experience than they left with. Our officers are already rewriting our training manuals.', hint: '', concept: '',
+        options: [{ label: 'Welcome them home', tip: `Capacity +${n}`, handler: () => { state.capacity = Math.min(100, state.capacity + n); triggerDelta('capacity', n); return { title: 'A Seasoned Army', desc: 'The veterans train a new generation of recruits, and the whole army runs better for it.', changes: [{ text: `Capacity +${n}`, type: 'pos' }], log: `Outcome: Foreign Aid Pays Off. Capacity +${n}.` }; } }] };
+    }
+
+    /* ==========================================================================
        DEMOCRATIC BACKSLIDING
        After two rigged elections in a row, an opposition leader flees abroad. Later, critics accuse the regime of abandoning the republic's
        principles: an incident that starts at 50% and moves, by a variable amount, with how the player treats elections, force and reform.
        Empty it and the state is rewarded; fill it and a Government in Exile claims authority, and if that fills, it takes power by a coup.
        ========================================================================== */
     // dir > 0 pushes the regime toward backsliding; dir < 0 eases it (by a smaller amount)
+    // Remembers how far a bar moved during this resolution, so the result box can end with "Democratic Backsliding +12%"
+    function noteDemocracy(name, delta) {
+      if (!delta) return;
+      const n = state.democracyNote;
+      if (n && n.name === name) n.delta += delta; else state.democracyNote = { name, delta };
+    }
     function democracyShift(dir) {
       const D = CONFIG.DEMOCRACY;
       const back = state.ongoing.find(i => i.kind === 'democracy' && i.subtype === 'backsliding');
       const exile = state.ongoing.find(i => i.kind === 'democracy' && i.subtype === 'exile');
       if (back) {
         const amt = dir > 0 ? randInt(D.fill[0], D.fill[1]) : -randInt(D.ease[0], D.ease[1]);
+        const before = back.progress;
         back.progress = Math.max(0, Math.min(100, back.progress + amt));
+        noteDemocracy('Democratic Backsliding', back.progress - before);
         if (back.progress >= 100) endBacksliding(back, false);
         else if (back.progress <= 0) endBacksliding(back, true);
       } else if (exile && dir > 0) {
+        const before = exile.progress;
         exile.progress = Math.min(100, exile.progress + randInt(D.exileFill[0], D.exileFill[1]));
+        noteDemocracy(exile.name, exile.progress - before);
         if (exile.progress >= 100) exileCoup(exile);
       }
     }
@@ -5044,6 +5231,11 @@
       } else {
         const P = PARTIES[(state.democracy.opposition || {}).party] || PARTIES.tech;
         logEntry('Democratic Backsliding filled: a government in exile claims authority.');
+        // The whole country heats up: dissent, disease outbreaks and atrocities all become likelier for a while
+        const H = CONFIG.DEMOCRACY.fillHeat;
+        state.heat = Math.min(CONFIG.OVERREACH.heatMax, (state.heat || 0) + H);
+        addPeaceHeat('cholera', H);
+        addPeaceHeat('atrocity', H);
         const ex = createOngoing({ kind: 'democracy', subtype: 'exile', name: 'Contested Authority', progress: CONFIG.DEMOCRACY.exileStart });
         ex.expires = state.month + CONFIG.DEMOCRACY.exileMonths;
         ex.party = P.name;
@@ -5060,13 +5252,13 @@
       state.popupQueue = state.popupQueue.filter(q => !/^election_/.test(q.reason));
       state.nextElection = { start: state.month + 36, month: state.month + 48 };
       state.coupCooldown = 36;
-      const hit = CONFIG.DEMOCRACY.exileAutonomyHit;
+      const hit = state.autonomy * CONFIG.DEMOCRACY.exileAutonomyShare;   // half of the autonomy we have right now
       state.autonomy = Math.max(0, state.autonomy - hit);
       triggerDelta('autonomy', -hit);
       state.stats.coups.push({ month: state.month, group: 'exile', party });
-      logEntry(`Coup: the government in exile returned and put the ${P.name} in power. Autonomy -${hit}.`);
+      logEntry(`Coup: the government in exile returned and put the ${P.name} in power. Autonomy halved (-${Math.round(hit)}).`);
       const f = v => (v > 0 ? '+' : '-') + Math.abs(v).toFixed(2).replace(/0$/, '');
-      queueNotice('Special Incident', 'The Government in Exile Returns', `<strong>The exiled leader of the ${P.name} has returned at the head of a coup, and the ${P.name} now rule the country.</strong><br><br><span class="fine">${P.short} in power: capacity ${f(pe.cap)} and autonomy ${f(pe.aut)} a month. The next election season begins in three years.</span><br><br><strong class="text-red">Autonomy -${hit}</strong>`, CONCEPT_NOTES.monopoly_violence);
+      queueNotice('Special Incident', 'The Government in Exile Returns', `<strong>The exiled leader of the ${P.name} has returned at the head of a coup, and the ${P.name} now rule the country.</strong><br><br><span class="fine">${P.short} in power: capacity ${f(pe.cap)} and autonomy ${f(pe.aut)} a month. The next election season begins in three years.</span><br><br><strong class="text-red">Autonomy halved: -${Math.round(hit)}</strong>`, CONCEPT_NOTES.monopoly_violence);
     }
 
     // Called every month
@@ -5542,7 +5734,7 @@
         if (item.reason === 'incident') {
           state.popupKind = 'incident';
           let data;
-          try { data = item.forceLegit ? generateOppositionLeaderEvent() : (item.forceTitle ? generateCapacityIncidentEvent(null, null, item.forceTitle) : generateIncidentForCategory(item.category)); }
+          try { data = item.forcePayoff ? generateForeignPayoffEvent() : item.forceLegit ? generateOppositionLeaderEvent() : (item.forceTitle ? generateCapacityIncidentEvent(null, null, item.forceTitle) : generateIncidentForCategory(item.category)); }
           catch (err) { console.error('Incident failed, using fallback:', err); data = generateCapacityIncidentEvent(); }
           state.recentEvents.push(data.title);
           if (state.recentEvents.length > 8) state.recentEvents.shift();
@@ -5632,7 +5824,7 @@
           category: 'New Special Incident',
           title: inc.name,
           body: exile
-            ? `From exile, the leader of the ${inc.party || 'opposition'} claims legitimate authority over our government, and some foreign capitals are listening. <strong>Contested Authority</strong> is now a special incident.<br><br>It grows when we rule by force and fraud, and cannot shrink. If it fills, the exiled government returns through a coup. If it has not filled after ${CONFIG.DEMOCRACY.exileMonths} months, it fades. You can click this incident's bar at any time to reopen it.`
+            ? `From exile, the leader of the ${inc.party || 'opposition'} claims legitimate authority over our government, and some foreign capitals are listening. <strong>Contested Authority</strong> is now a special incident.<br><br>It grows when we rule by force and fraud, and cannot shrink. If it fills, the exiled government returns through a coup. If it has not filled after ${CONFIG.DEMOCRACY.exileMonths} months, it fades.<br><span class=\"fine\">Tension is rising across the country: protests, unrest and crises are all likelier for a while.</span> You can click this incident's bar at any time to reopen it.`
             : `Critics have accused our regime of abandoning the democratic principles on which our republic was founded. <strong>Democratic Backsliding</strong> is now a special incident.<br><br>We cannot answer it directly, but how we run our elections, use force and answer critics will move it. If it fills, worse will follow. If it empties, our institutions are rewarded. You can click this incident's bar at any time to reopen it.`,
           hint: '', concept: CONCEPT_NOTES.legitimacy,
           options: [{ label: 'OK', direct: () => { state.userPlaying = false; state.jumpPending.incident = true; closeModalAndAdvance(); } }]
@@ -6151,6 +6343,7 @@
       if (state.civilWar) out.push({ text: 'Civil war refugees', value: `-${(CONFIG.CIVIL_WAR.popDecline * 100).toFixed(1)}% people/mo`, type: 'neg' });
       { const DR = displacementRate(); if (DR) out.push({ text: 'Displaced families', value: fmtRate(DR), type: 'neg' }); }
       { const GG = goodGovRate(); if (GG.cap) out.push({ text: 'Strong Institutions', value: fmtRate(GG.cap), type: 'pos' }); }
+      foreignRates().items.forEach(e => { if (e.cap) out.push({ text: e.label, value: fmtRate(e.cap), type: e.cap > 0 ? 'pos' : 'neg' }); });
       { const A = aristocracyRates(); if (A.cap) out.push({ text: 'Bolstered Aristocracy', value: fmtRate(A.cap), type: 'neg' }); }
       { const cd = captureDrain(autonomyAtCapacityStep()); if (cd > 0 && state.capacity > 0) out.push({ text: cd >= CONFIG.SPIRAL_CAPACITY_DRAIN_ZERO ? 'No autonomy' : 'Almost no autonomy', value: fmtRate(-cd), type: 'neg' }); }
       return out;
@@ -6176,6 +6369,7 @@
       { const pe = PARTY_EFFECTS[state.partyInPower]; if (pe) out.push({ text: `${PARTIES[state.partyInPower].short} in power`, value: fmtRate(pe.aut), type: pe.aut > 0 ? 'pos' : 'neg' }); }
       { const q = noInfluenceGroups(); if (q > 0) out.push({ text: q === 1 ? 'A group with no influence' : `${q} groups with no influence`, value: fmtRate(q * CONFIG.NO_INFLUENCE_AUTONOMY), type: 'pos' }); }
       { const GG = goodGovRate(); if (GG.aut) out.push({ text: 'Receptive Government', value: fmtRate(GG.aut), type: 'pos' }); }
+      foreignRates().items.forEach(e => { if (e.aut) out.push({ text: e.label, value: fmtRate(e.aut), type: e.aut > 0 ? 'pos' : 'neg' }); });
       { const A = aristocracyRates(); if (A.aut) out.push({ text: state.aristocracy.kind === 'merit' ? 'Bolstered Meritocracy' : 'Bolstered Aristocracy', value: fmtRate(A.aut), type: A.aut > 0 ? 'pos' : 'neg' }); }
       if (state.loanAutonomyDecayRate > 0) out.push({ text: 'Loan terms', value: fmtRate(-state.loanAutonomyDecayRate), type: 'neg' });
       if (state.month < state.taxUnrestUntil) out.push({ text: 'Angry public', value: `${state.taxUnrestUntil - state.month} mo left`, type: 'neg' });
@@ -6683,7 +6877,7 @@
       "Families Demand Judicial Appointments": "Elite Pressure",
       "Families Demand Control of Customs Posts": "Elite Pressure",
       "Aristocrats Defend Customary Privileges": "Elite Pressure",
-      "Former Nobles Demand Promotions": "Aristocratic Push",
+      "Former Nobles Demand Promotions": "Elite Pressure",
       "Tribes Demand Independent Courts": "Tribal Sovereignty",
       "Tribes Demand Veto": "Tribal Sovereignty",
       "Tribes Raise Militias": "Tribal Sovereignty",
@@ -7267,45 +7461,48 @@
           const openers = doNothing ? DO_NOTHING_OPENERS : TRIED_OPENERS;
           const base = openers[Math.floor(Math.random() * openers.length)];
           const out = { title: "Failure", changes: [], log: '' };
+          // Giving in takes the base damage. A failed attempt takes more of it...
+          const upSmall = n => (doNothing ? n : Math.max(n + 1, Math.round(n * CC.attemptFailMult)));
+          const upBig = n => (doNothing ? n : Math.round(n * CC.attemptFailMult));
           const FL = k => (V.flavor || {})[k] || (CAPACITY_FAIL_FLAVOR[ev.title] || CAPACITY_FLAVOR_EXTRA[ev.title] || {})[k];
           if (doNothing) state.stats.nothingFails++; else state.stats.attemptFails++;
           let desc;
 
           if (kind === 'autonomy') {
-            const autL = Math.round(D.autonomy * scaleNow);
+            const autL = upSmall(Math.round(D.autonomy * scaleNow));
             state.autonomy = Math.max(0, state.autonomy - autL);
             triggerDelta('autonomy', -autL);
             desc = `${base} ${FL('autonomy') || (ev.cat === 'Economic' ? 'Foreign creditors and markets dictated terms.' : 'Criminals and corrupt insiders bent officials to their will.')}`;
             out.changes.push({ text: `Autonomy -${autL}`, type: "neg" });
           } else if (kind === 'staff') {
             const sg = CAPACITY_STAFF_GROUP[ev.title] || 'bureaucrats';
-            const lost = Math.min(state[sg], Math.round(state[sg] * D.staffPct * scaleNow / 10) * 10);
+            const lost = Math.min(state[sg], upBig(Math.round(state[sg] * D.staffPct * scaleNow / 10) * 10));
             state[sg] -= lost;
             recordStaffLoss(sg, lost);
             desc = `${base} ${FL('staff') || 'Many officials were killed or hurt, and the state lost staff.'}`;
             out.changes.push({ text: `${sg.charAt(0).toUpperCase() + sg.slice(1)} -${lost.toLocaleString('en-US')}`, type: "neg" });
           } else if (kind === 'bailout') {
-            const tLoss = Math.round(D.treasury * scaleNow);
+            const tLoss = upBig(Math.round(D.treasury * scaleNow));
             payCost(tLoss);
-            const cl = CC.bailoutCapacityHit;
+            const cl = upSmall(CC.bailoutCapacityHit);
             state.capacity = Math.max(0, state.capacity - cl);
             triggerDelta('capacity', -cl);
             desc = `${base} ${FL('bailout') || 'Businesses closed, tax revenue collapsed, and the state lost its grip on the economy.'}`;
             out.changes.push({ text: `Treasury -${formatMoney(tLoss)}`, type: "neg" });
             out.changes.push({ text: `Capacity -${cl}`, type: "neg" });
           } else if (kind === 'capacity') {
-            const cl = CC.meltdownCapacityHit;
+            const cl = upSmall(CC.meltdownCapacityHit);
             state.capacity = Math.max(0, state.capacity - cl);
             triggerDelta('capacity', -cl);
             desc = `${base} ${FL('capacity') || 'The state lost years of expertise.'}`;
             out.changes.push({ text: `Capacity -${cl}`, type: "neg" });
           } else if (kind === 'efficiency') {
-            const pts = Math.round(D.efficiencyPts * scaleNow);
+            const pts = upSmall(Math.round(D.efficiencyPts * scaleNow));
             state.collectionEfficiency = Math.max(0.05, state.collectionEfficiency - pts / 100);
             desc = `${base} ${FL('efficiency') || 'Tax records were scrambled, so we collect less until they are rebuilt.'}`;
             out.changes.push({ text: `Tax collection -${pts}%`, type: "neg" });
           } else if (kind === 'population') {
-            const drop = Math.round(state.population * D.populationPct * scaleNow);
+            const drop = upBig(Math.round(state.population * D.populationPct * scaleNow));
             const dropLabel = drop >= 1000000 ? formatPopulation(drop) : `${Math.round(drop / 1000)}K`;
             state.population -= drop;
             state.growthSlowdownTimer = 6;
@@ -7314,7 +7511,7 @@
             out.changes.push({ text: `Population -${dropLabel} (growth slowed)`, type: "neg" });
             out.changes.push({ text: 'Fewer citizens means less tax money to pay for personnel.', type: "note" });
           } else {
-            const tLoss = Math.round(D.treasury * scaleNow);
+            const tLoss = upBig(Math.round(D.treasury * scaleNow));
             payCost(tLoss);
             desc = `${base} ${FL('treasury') || 'Emergency spending and lost revenue drained public funds.'}`;
             out.changes.push({ text: `Treasury -${formatMoney(tLoss)}`, type: "neg" });
@@ -7322,14 +7519,20 @@
 
           // Corruption and economic failures also hurt tax collection (the money is going elsewhere), unless that was the main result already
           if ((ev.cat === 'Corruption' || ev.cat === 'Economic') && kind !== 'efficiency') {
-            const pts = CONFIG.TAX_PENALTY[ev.cat === 'Corruption' ? 'corruption' : 'economic'];
+            const pts = upSmall(CONFIG.TAX_PENALTY[ev.cat === 'Corruption' ? 'corruption' : 'economic']);
             state.collectionEfficiency = Math.max(0.05, state.collectionEfficiency - pts / 100);
             out.changes.push({ text: `Tax collection -${pts}%`, type: "neg" });
           }
           if (isNatural && kind !== 'capacity') {
-            state.capacity = Math.max(0, state.capacity - CC.disasterCapacityHit);
-            triggerDelta('capacity', -CC.disasterCapacityHit);
-            out.changes.unshift({ text: `Capacity -${CC.disasterCapacityHit}`, type: "neg" });
+            const dh = upSmall(CC.disasterCapacityHit);
+            state.capacity = Math.max(0, state.capacity - dh);
+            triggerDelta('capacity', -dh);
+            out.changes.unshift({ text: `Capacity -${dh}`, type: "neg" });
+          }
+          // ...and the failed operation wastes money that giving in never spends (not on a bailout, which is already paid in full)
+          if (!doNothing && kind !== 'bailout' && !BAILOUT_TITLES.includes(ev.title) && !fits.includes('treasury')) {
+            const wasted = Math.round(solveCostP * CC.wastedShare);
+            if (wasted > 0) { payCost(wasted); out.changes.push({ text: `Treasury -${formatMoney(wasted)} (wasted effort)`, type: "neg" }); }
           }
           // Trying and failing costs 100 to 200 of the people we sent in. Doing nothing never costs them.
           if (!doNothing) {
@@ -7354,19 +7557,23 @@
       const D0 = CC.damage, cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
       const fitsNow = V.fits || CAPACITY_HITS_BY_TITLE[ev.title] || CAPACITY_HITS_EXTRA[ev.title] || CAPACITY_HITS[ev.cat] || ['treasury'];
       const isBailoutT = BAILOUT_TITLES.includes(ev.title);
-      const lossText = (k) => {
-        if (k === 'autonomy') return `Autonomy -${Math.round(D0.autonomy * scaleNow)}`;
-        if (k === 'staff') { const sg = CAPACITY_STAFF_GROUP[ev.title] || 'bureaucrats'; return `${cap1(sg)} -${Math.min(state[sg], Math.round(state[sg] * D0.staffPct * scaleNow / 10) * 10).toLocaleString('en-US')}`; }
-        if (k === 'capacity') return `Capacity -${CC.meltdownCapacityHit}`;
-        if (k === 'efficiency') return `Tax collection -${Math.round(D0.efficiencyPts * scaleNow)}%`;
-        if (k === 'population') { const drop = Math.round(state.population * D0.populationPct * scaleNow); return `Population -${drop >= 1000000 ? formatPopulation(drop) : Math.round(drop / 1000) + 'K'}`; }
-        return `Treasury -${formatMoney(Math.round(D0.treasury * scaleNow))}`;
+      const upS = (n, attempt) => (attempt ? Math.max(n + 1, Math.round(n * CC.attemptFailMult)) : n);
+      const upB = (n, attempt) => (attempt ? Math.round(n * CC.attemptFailMult) : n);
+      const lossText = (k, attempt) => {
+        if (k === 'autonomy') return `Autonomy -${upS(Math.round(D0.autonomy * scaleNow), attempt)}`;
+        if (k === 'staff') { const sg = CAPACITY_STAFF_GROUP[ev.title] || 'bureaucrats'; return `${cap1(sg)} -${Math.min(state[sg], upB(Math.round(state[sg] * D0.staffPct * scaleNow / 10) * 10, attempt)).toLocaleString('en-US')}`; }
+        if (k === 'capacity') return `Capacity -${upS(CC.meltdownCapacityHit, attempt)}`;
+        if (k === 'efficiency') return `Tax collection -${upS(Math.round(D0.efficiencyPts * scaleNow), attempt)}%`;
+        if (k === 'population') { const drop = upB(Math.round(state.population * D0.populationPct * scaleNow), attempt); return `Population -${drop >= 1000000 ? formatPopulation(drop) : Math.round(drop / 1000) + 'K'}`; }
+        return `Treasury -${formatMoney(upB(Math.round(D0.treasury * scaleNow), attempt))}`;
       };
-      let failList = isBailoutT ? [`Treasury -${formatMoney(Math.round(D0.treasury * scaleNow))}`, `Capacity -${CC.bailoutCapacityHit}`] : fitsNow.slice(0, 2).map(lossText);
-      const failTipBase = isBailoutT ? failList.join(', ') : failList.join(' or ');
-      const natHit = isNatural && !fitsNow.includes('capacity') && !isBailoutT ? `Capacity -${CC.disasterCapacityHit}, ` : '';
-      const taxHit = (ev.cat === 'Corruption' || ev.cat === 'Economic') && !fitsNow.includes('efficiency') ? `, Tax collection -${CONFIG.TAX_PENALTY[ev.cat === 'Corruption' ? 'corruption' : 'economic']}%` : '';
-      const failTip = natHit + failTipBase + taxHit;
+      const failTipFor = (attempt) => {
+        const list = isBailoutT ? [`Treasury -${formatMoney(upB(Math.round(D0.treasury * scaleNow), attempt))}`, `Capacity -${upS(CC.bailoutCapacityHit, attempt)}`] : fitsNow.slice(0, 2).map(k => lossText(k, attempt));
+        const natHit = isNatural && !fitsNow.includes('capacity') && !isBailoutT ? `Capacity -${upS(CC.disasterCapacityHit, attempt)}, ` : '';
+        const taxHit = (ev.cat === 'Corruption' || ev.cat === 'Economic') && !fitsNow.includes('efficiency') ? `, Tax collection -${upS(CONFIG.TAX_PENALTY[ev.cat === 'Corruption' ? 'corruption' : 'economic'], attempt)}%` : '';
+        return natHit + (isBailoutT ? list.join(', ') : list.join(' or ')) + taxHit;
+      };
+      const failTip = failTipFor(false), failTipAttempt = failTipFor(true);
       const solveCostP = isBailoutT ? Math.round(D0.treasury * scaleNow * CC.bailoutCostShare) : (ev.title === 'Extortion Rackets Infiltration' ? 0 : Math.max(2000000, Math.round(grossTaxIncome() * 0.3 / 100000) * 100000));
       const autGainP = CC.successGain * (state.autonomy < 50 ? 1 : (state.autonomy < 75 ? 0.5 : 0.25));
       const winTip = (isBailoutT ? `Autonomy -${Math.round(CC.bailoutAutonomy * scaleNow)}` : (isNatural ? `Capacity +${capGain(CC.successGain)}` : `Autonomy +${autGainP}`)) + (solveCostP > 0 ? `, Treasury -${formatMoney(solveCostP)}` : '');
@@ -7378,7 +7585,7 @@
         concept: '',
         options: [
           { label: choices[0], tip: `Fails automatically<br>${failTip}`, handler: () => resolve(true) },
-          { label: `${choices[1]} (${chance}% chance of success)`, tip: `Success: ${winTip}<br>Failure: ${failTip}`, handler: () => resolve(false) }
+          { label: `${choices[1]} (${chance}% chance of success)`, tip: `Success: ${winTip}<br>Failure: ${failTipAttempt}${(!isBailoutT && !fitsNow.includes('treasury') && Math.round(solveCostP * CC.wastedShare) > 0) ? `, Treasury -${formatMoney(Math.round(solveCostP * CC.wastedShare))} wasted` : ''}`, handler: () => resolve(false) }
         ]
       };
     }
@@ -7668,6 +7875,12 @@
     function showResultModal(outcome) {
       state.phase = 'RESOLVED';
       applyDifficultyExtra(outcome);
+      // If this resolution moved the Democratic Backsliding bar (or the exile claim), say so briefly at the end
+      if (state.democracyNote) {
+        const n = state.democracyNote, d = Math.round(n.delta);
+        state.democracyNote = null;
+        if (d) { outcome.changes = outcome.changes || []; outcome.changes.push({ text: `${n.name} ${d > 0 ? '+' : '-'}${Math.abs(d)}%`, type: d > 0 ? 'neg' : 'pos' }); }
+      }
       if (outcome.title === 'Failure') state.failLog.push(state.month);
       (outcome.changes || []).forEach(c => {
         const m = /^Autonomy -(\d+)/.exec(c.text || '');
