@@ -615,6 +615,8 @@
       50%, 100% { border-color: var(--ink-black); }
     }
     .ongoing-bar.special .ongoing-fill { background: var(--faded-ochre); }
+    .ongoing-bar.special.backsliding .ongoing-fill { background: #66717C; }   /* steel gray */
+    .ongoing-bar.backsliding .ongoing-label { color: #FFFFFF; }
     .ongoing-bar.war .ongoing-fill { background: #5B1A17; }
     .ongoing-bar.war { border-style: double; border-width: 5px; }
     .option-preface { font-style: italic; font-size: 17px; margin-top: 6px; }
@@ -1152,8 +1154,16 @@
             <td id="ledgerLoanInterest" class="align-right text-red">-$0.0M</td>
           </tr>
           <tr class="total-row">
-            <td>Projected Net Monthly Treasury Balance</td>
+            <td>Projected Net Monthly Balance (all income less all costs)</td>
             <td id="ledgerNet" class="align-right">+$4.3M</td>
+          </tr>
+          <tr id="rowDebtAdded" style="display:none;">
+            <td>Added to the national debt (hiring is paid up front, before the taxes arrive)</td>
+            <td id="ledgerDebtAdded" class="align-right text-red">+$0.0M</td>
+          </tr>
+          <tr id="rowTreasuryChange" class="total-row" style="display:none;">
+            <td>The treasury balance will change by</td>
+            <td id="ledgerTreasuryChange" class="align-right">+$0.0M</td>
           </tr>
         </table>
         <div style="font-size: 14px; margin-top: 10px; border-top: 1px dashed var(--rule-light); padding-top: 6px; display: flex; justify-content: space-between; flex-wrap: wrap;">
@@ -1511,8 +1521,9 @@
       // Opposition Leader Flees -> Democratic Backsliding -> (Strong Institutions, or Government in Exile -> a coup)
       DEMOCRACY: {
         oppositionDelay: [4, 14], backslideDelay: [6, 18],   // months after the second rigged election / after the flight
-        backslideStart: 50, exileStart: 30, exileMonths: 30,
+        backslideStart: 50, exileStart: 30, exileMonths: 36,   // the exile claim lasts a little longer than before (it was 30 months)
         fill: [7, 14], ease: [3, 7],                          // how far a bar moves each time (ease is the smaller one)
+        exileFill: [10, 19],                                  // the exile claim fills faster than backsliding does
         exileAutonomyHit: 15,
         goodMonths: 36, strongCap: 0.06, receptiveAut: 0.08, oddsCut: 0.04   // the modifiers after a backsliding bar empties
       },
@@ -1524,7 +1535,7 @@
       // Turning it away makes the two warzone events likelier for the rest of the crisis. Accepting starts a chain: once the crisis has progressed,
       // the mission either secures a safe zone (capacity up, the crisis grows more slowly) or fails (cholera, or massacres and refugees, for a year).
       // The warzone events are rare on their own, and after one happens the chance is gutted and rebuilds over several months.
-      PEACE: { heatOnFail: 2, heatOnReject: 2, heatMax: 4, heatDecay: 0.05, oddsPerHeat: 0.25, choleraGuarantee: 9, displaceChance: 0.010, displaceMonths: 12, displaceCapacity: 0.08, offerChance: 0.04, progressNeeded: 40, resolveChance: 0.12, excellentShare: 0.55, slow: 0.7, excellentCapacity: 4,
+      PEACE: { acceptAutonomy: 5, heatOnFail: 2, heatOnReject: 2, heatMax: 4, heatDecay: 0.05, oddsPerHeat: 0.25, choleraGuarantee: 9, displaceChance: 0.010, displaceMonths: 12, displaceCapacity: 0.08, offerChance: 0.04, progressNeeded: 40, resolveChance: 0.12, excellentShare: 0.55, slow: 0.7, excellentCapacity: 4,
                fleeChance: 0.012, massacreChance: 0.009, fraudMult: 3, failMult: 4, failMonths: 12, rebuildMonths: 10, floor: 0.1,
                fleePct: [20, 35], massacrePct: [10, 25], growthMonths: 12, growthMult: 0.5,
                choleraMonths: 12, choleraDisease: 2.5, choleraPick: 6 },
@@ -2528,18 +2539,48 @@
       return Math.max(0.05, Math.min(1, state.collectionEfficiency + (Math.abs(gap) > 0.0005 ? gap * CONFIG.TAX.effDrift : 0)));
     }
 
+    // What the revenue box shows. With "As long as the budget allows" on, it shows hiring at the level the month will really use.
     function calculateFinances(includeHiring = true) {
-      const taxIncome = includeHiring ? taxesOwed() * projectedEfficiency() : grossTaxIncome();   // true = a forecast of next month
+      if (includeHiring && !GUARD_BUSY && guardActive()) {
+        const savedRates = { ...state.hireRate };
+        try { runDeficitGuard(false); GUARD_BUSY = true; return calculateFinancesRaw(true); }
+        finally { GUARD_BUSY = false; state.hireRate = savedRates; }
+      }
+      return calculateFinancesRaw(includeHiring);
+    }
+
+    // The month, as it will really happen: the training bill is paid FIRST (what the treasury cannot cover goes onto the debt), then the income and
+    // running costs settle against what is left. `net` is the whole month's gain or loss (income less every cost); the treasury and the debt can
+    // move differently from it, because hiring is paid before the income arrives.
+    function forecastMonth() {
+      const fin = calculateFinances(true);
+      const hire = fin.hiringCost, T0 = Math.max(0, state.treasury);
+      const borrowedHire = Math.max(0, hire - T0);
+      let T = Math.max(0, T0 - hire) + (fin.netChange + hire);
+      let shortfall = 0;
+      if (T < 0) { shortfall = -T; T = 0; }
+      return { fin, net: fin.netChange, hire, borrowedHire, shortfall, debtChange: borrowedHire + shortfall, treasuryChange: T - state.treasury };
+    }
+
+    function calculateFinancesRaw(includeHiring = true) {
+      // The month collects at today's rate (the rate drifts at the END of the month), so the forecast uses it too: what the box says is what the treasury does
+      const taxIncome = grossTaxIncome();
       const popRatio = state.population / CONFIG.STARTING.population;
 
       const burUpkeep = state.bureaucrats * monthlySalary('bureaucrats');
       const polUpkeep = state.police * monthlySalary('police');
       const solUpkeep = state.soldiers * monthlySalary('soldiers');
-      const totalPersonnelUpkeep = burUpkeep + polUpkeep + solUpkeep;
+      // Recruits are added at the start of the month, so they are paid this month too (the forecast counts them)
+      const newHireSalary = includeHiring ? ['bureaucrats', 'police', 'soldiers'].reduce((a, t) => a + hireAmount(t) * monthlySalary(t), 0) : 0;
+      const totalPersonnelUpkeep = burUpkeep + polUpkeep + solUpkeep + newHireSalary;
 
       const operatingCost = CONFIG.BASE_MONTHLY_OPERATING * Math.pow(popRatio, 1.5) * Math.pow(state.economyScale, 0.5) * state.inflationFactor * state.restructureMultiplier;
-      const debtInterest = debtMonthlyInterest();
       const hiringCost = includeHiring ? monthlyHiringCost() : 0;
+      // Hiring is paid up front, so what the treasury cannot cover is borrowed BEFORE the month's interest is worked out: the forecast counts that too
+      const extraDebt = includeHiring ? Math.max(0, hiringCost - Math.max(0, state.treasury)) : 0;
+      let debtInterest;
+      if (extraDebt > 0) { state.debt += extraDebt; try { debtInterest = debtMonthlyInterest(); } finally { state.debt -= extraDebt; } }
+      else debtInterest = debtMonthlyInterest();
 
       // Union strikes cost a share of tax revenue while they last (a little more as they grow)
       const strikeShare = state.ongoing.filter(i => i.subtype === 'unions').reduce((a, i) => a + CONFIG.UNION_STRIKE_LOSS * (0.6 + 0.4 * i.progress / 100), 0);
@@ -2742,7 +2783,7 @@
         const n = hireAmount(t);
         if (n > 0) {
           const c = hireCostFor(t, n);
-          payCost(c);
+          payCost(c);   // hiring is paid up front: whatever the treasury cannot cover right now goes onto the national debt
           state[t] += n;
           state.lastHired[t] = n;
           state.lastHireMonth[t] = state.month;
@@ -2823,26 +2864,30 @@
 
     // "As long as the budget allows": each month, if hiring at the slider's level would put the budget in the red, the slider steps down
     // one notch at a time until the budget holds. If it gets all the way down to Maintain, the menu goes back to Indefinitely.
-    function applyDeficitGuards() {
-      const types = ['bureaucrats', 'police', 'soldiers'];
-      types.forEach(t => {
-        if (state.hireDurSetting[t] !== -1 || state.hireRate[t] <= 0) return;
-        const deficit = () => {
-          const fin = calculateFinances(true);
-          const extraSalary = types.reduce((a, x) => a + hireAmount(x) * monthlySalary(x), 0);
-          return fin.netChange - extraSalary < 0;
-        };
-        let idx = posFromHireValue(state.hireRate[t]);
-        const start = state.hireRate[t];
-        while (idx > 1 && deficit()) { idx--; state.hireRate[t] = HIRE_STEPS[idx]; }
-        if (state.hireRate[t] !== start) logEntry(`The ${t} hiring level was lowered to stay within the budget.`);
-        if (idx <= 1) {
-          state.hireRate[t] = -1;
-          state.hireDurSetting[t] = 0;
-          logEntry(`The ${t} hiring drive ended because the budget could not support it. Hiring is back to Maintain.`);
-        }
-      });
+    let GUARD_BUSY = false;
+    function guardActive() { return ['bureaucrats', 'police', 'soldiers'].some(t => state.hireDurSetting[t] === -1 && state.hireRate[t] > 0); }
+    // Steps the guarded groups down. With real = false nothing is logged and the duration menus are left alone (a preview).
+    function runDeficitGuard(real) {
+      GUARD_BUSY = true;
+      try {
+        ['bureaucrats', 'police', 'soldiers'].forEach(t => {
+          if (state.hireDurSetting[t] !== -1 || state.hireRate[t] <= 0) return;
+          const deficit = () => calculateFinances(true).netChange < 0;   // (the forecast already counts the new recruits' salaries)
+          let idx = posFromHireValue(state.hireRate[t]);
+          const start = state.hireRate[t];
+          while (idx > 1 && deficit()) { idx--; state.hireRate[t] = HIRE_STEPS[idx]; }
+          if (real && state.hireRate[t] !== start) logEntry(`The ${t} hiring level was lowered to stay within the budget.`);
+          if (idx <= 1) {
+            state.hireRate[t] = -1;
+            if (real) {
+              state.hireDurSetting[t] = 0;
+              logEntry(`The ${t} hiring drive ended because the budget could not support it. Hiring is back to Maintain.`);
+            }
+          }
+        });
+      } finally { GUARD_BUSY = false; }
     }
+    function applyDeficitGuards() { runDeficitGuard(true); }
 
     // The "For" menu: increase staff for a set number of months, then fall back to Maintain
     function onDurationChange(type, months) {
@@ -3064,6 +3109,18 @@
       }
 
       setTextIfChanged('ledgerNet', formatMoney(fin.netChange));
+      {
+        const fm = forecastMonth();
+        const rDebt = document.getElementById('rowDebtAdded'), rTre = document.getElementById('rowTreasuryChange');
+        const show = fm.debtChange > 1000;
+        if (rDebt) { rDebt.style.display = show ? 'table-row' : 'none'; setTextIfChanged('ledgerDebtAdded', `+${formatMoney(fm.debtChange)}`); }
+        if (rTre) {
+          rTre.style.display = show ? 'table-row' : 'none';
+          setTextIfChanged('ledgerTreasuryChange', `${fm.treasuryChange >= 0 ? '+' : '-'}${formatMoney(Math.abs(fm.treasuryChange))}`);
+          const el = document.getElementById('ledgerTreasuryChange');
+          if (el) el.className = `align-right ${fm.treasuryChange >= 0 ? 'text-green' : 'text-red'}`;
+        }
+      }
       const lNet = document.getElementById('ledgerNet');
       if (lNet) {
         lNet.className = `align-right ${fin.netChange >= 0 ? 'text-green' : 'text-red'}`;
@@ -3472,10 +3529,11 @@
       ['cholera', 'atrocity'].forEach(k => { if (state.peaceHeat && state.peaceHeat[k] > 0) state.peaceHeat[k] = Math.max(0, state.peaceHeat[k] - CONFIG.PEACE.heatDecay); });
 
       // 0. Hiring set by the sliders happens first (paid from the treasury, any shortfall becomes debt)
-      applyMonthlyHiring();
+      const hireSpent = applyMonthlyHiring();   // (paid up front)
       ['bureaucrats', 'police', 'soldiers'].forEach(t => { state.hireLog[t].push(state.lastHired[t]); if (state.hireLog[t].length > 12) state.hireLog[t].shift(); });
 
-      // 1. Finances: the treasury pays first; any shortfall is added to the national debt
+      // 1. Finances: the training bill was paid up front (above); now the month's income and running costs settle against what is left.
+      //    Any shortfall the treasury cannot cover is added to the national debt.
       const fin = calculateFinances(false);
       if (state.treasury + fin.netChange >= 0) {
         state.treasury += fin.netChange;
@@ -3805,8 +3863,8 @@
       const T = CONFIG.TREASURY_WARNING;
       state.treasuryDeclineStreak = state.treasury < state.prevTreasury ? state.treasuryDeclineStreak + 1 : 0;
       // Months until the treasury is empty if spending stays as it is. Two months in a row inside the window, or it is not a trend.
-      const fin = calculateFinances(true);
-      const runway = (fin.netChange < 0 && state.treasury > 0) ? state.treasury / -fin.netChange : Infinity;
+      const fm = forecastMonth();   // what the TREASURY will do (hiring on credit can lift it while the month as a whole loses money)
+      const runway = (fm.treasuryChange < 0 && state.treasury > 0) ? state.treasury / -fm.treasuryChange : Infinity;
       state.runwayStreak = runway <= T.runwayMonths ? state.runwayStreak + 1 : 0;
       // It must be falling right now (two months of real decline) AND forecast to run out soon. A treasury that is growing never warns.
       if (state.runwayStreak >= T.confirmMonths && state.treasuryDeclineStreak >= 2 && state.month - state.lastWarnMonth.treasury >= T.cooldown) {
@@ -3819,11 +3877,12 @@
     function explainTreasury() {
       const fin = calculateFinances(true);
       const T = CONFIG.TREASURY_WARNING;
-      const runwayM = (fin.netChange < 0 && state.treasury > 0) ? state.treasury / -fin.netChange : null;
+      const fm = forecastMonth();
+      const runwayM = (fm.treasuryChange < 0 && state.treasury > 0) ? state.treasury / -fm.treasuryChange : null;
       const streak = runwayM !== null ? ` (empty in about ${Math.max(1, Math.round(runwayM))} month${Math.round(runwayM) <= 1 ? '' : 's'} at this rate)` : '';
       const money = n => formatMoney(n);
       let html = `<strong>Balance:</strong> ${money(state.treasury)}${streak}<br>`;
-      html += `<strong>This month:</strong> <span class="${fin.netChange < 0 ? 'text-red' : 'text-green'}"><strong>${money(fin.netChange)}</strong></span><br>`;
+      html += `<strong>This month:</strong> <span class="${fin.netChange < 0 ? 'text-red' : 'text-green'}"><strong>${money(fin.netChange)}</strong></span>${fm.debtChange > 1000 ? ` (hiring is paid up front, so ${money(fm.debtChange)} goes onto the national debt)` : ''}<br>`;
       html += `<span style="font-size:16px;">Taxes ${money(fin.taxIncome)}, salaries ${money(fin.totalPersonnelUpkeep)}, operating ${money(fin.operatingCost)}${fin.debtInterest > 0 ? `, interest ${money(fin.debtInterest)}` : ''}${fin.hiringCost > 0 ? `, hiring ${money(fin.hiringCost)}` : ''}</span>`;
       const items = [];
       items.push(fin.hiringCost > 0 ? `<strong>Cut spending:</strong> lower a hiring slider (hiring costs ${money(fin.hiringCost)} a month) or lay off staff.` : '<strong>Cut spending:</strong> lay off staff you do not need.');
@@ -3856,8 +3915,8 @@
     function adviceStillApplies(kind) {
       const types = ['bureaucrats', 'police', 'soldiers'];
       if (kind === 'treasury') {
-        const net = calculateFinances(true).netChange;
-        return net < 0 && state.treasury > 0 && state.treasury / -net <= CONFIG.TREASURY_WARNING.runwayMonths;
+        const tc = forecastMonth().treasuryChange;
+        return tc < 0 && state.treasury > 0 && state.treasury / -tc <= CONFIG.TREASURY_WARNING.runwayMonths;
       }
       // The advice comes after the month's other popups, some of which may have just raised the very bar it is about. If the bar is above where
       // it stood when the month ended, the player is experiencing a rise, not a decline, so the warning is dropped.
@@ -4941,7 +5000,7 @@
         if (back.progress >= 100) endBacksliding(back, false);
         else if (back.progress <= 0) endBacksliding(back, true);
       } else if (exile && dir > 0) {
-        exile.progress = Math.min(100, exile.progress + randInt(D.fill[0], D.fill[1]));
+        exile.progress = Math.min(100, exile.progress + randInt(D.exileFill[0], D.exileFill[1]));
         if (exile.progress >= 100) exileCoup(exile);
       }
     }
@@ -4985,7 +5044,7 @@
       } else {
         const P = PARTIES[(state.democracy.opposition || {}).party] || PARTIES.tech;
         logEntry('Democratic Backsliding filled: a government in exile claims authority.');
-        const ex = createOngoing({ kind: 'democracy', subtype: 'exile', name: 'Government in Exile', progress: CONFIG.DEMOCRACY.exileStart });
+        const ex = createOngoing({ kind: 'democracy', subtype: 'exile', name: 'Contested Authority', progress: CONFIG.DEMOCRACY.exileStart });
         ex.expires = state.month + CONFIG.DEMOCRACY.exileMonths;
         ex.party = P.name;
       }
@@ -5020,7 +5079,7 @@
       if (ex && state.month >= ex.expires) {
         removeOngoing(ex);
         logEntry('The government in exile faded away.');
-        queueNotice('Special Incident', 'The Government in Exile Fades', 'The exiled leader\'s claim has gone nowhere. Foreign capitals have stopped taking the calls, and the exile is forgotten.', CONCEPT_NOTES.legitimacy);
+        queueNotice('Special Incident', 'The Contested Authority Fades', 'The exiled leader\'s claim has gone nowhere. Foreign capitals have stopped taking the calls, and the exile is forgotten.', CONCEPT_NOTES.legitimacy);
       }
       if (state.goodGov && state.month - state.goodGov.start >= state.goodGov.months) state.goodGov = null;
     }
@@ -5281,9 +5340,11 @@
               addPeaceHeat('atrocity', CONFIG.PEACE.heatOnReject);   // refusing the mission: massacres and refugee flights run hotter
               return { title: 'Peacekeepers Turned Away', desc: war ? 'We denounce the mission as foreign meddling. The blue helmets stay home, and the refugees keep coming.' : 'We denounce the mission as foreign meddling. The blue helmets stay home, and the streets grow more dangerous by the week.', changes: [{ text: 'Civilians are likelier to flee, or be attacked, while the crisis lasts.', type: 'note' }, { text: 'Massacres and refugee flights run hotter', type: 'neg' }], log: 'Outcome: UN Peacekeepers turned away.' };
             } },
-            { label: 'Keep the Peace', tip: 'A mission arrives, and may help or fail as the crisis grows', handler: () => {
+            { label: 'Keep the Peace', tip: `Autonomy -${P.acceptAutonomy + (state.difficultyExtra || 0)}<br>A mission arrives, and may help or fail`, handler: () => {   // (harder difficulties add their usual extra to a penalty like this)
               pc.accepted = true;
-              return { title: 'Peacekeepers Arrive', desc: war ? 'Blue helmets roll into the capital, and the guns fall quiet. For now.' : 'Blue helmets arrive in the capital, and the street clashes ease. For now.', changes: [{ text: 'The mission is under way.', type: 'note' }], log: 'Outcome: UN Peacekeepers accepted.' };
+              state.autonomy = Math.max(0, state.autonomy - P.acceptAutonomy);   // foreign troops on our soil: an instant hit to our independence
+              triggerDelta('autonomy', -P.acceptAutonomy);
+              return { title: 'Peacekeepers Arrive', desc: war ? 'Blue helmets roll into the capital, and the guns fall quiet. For now.' : 'Blue helmets arrive in the capital, and the street clashes ease. For now.', changes: [{ text: `Autonomy -${P.acceptAutonomy}`, type: 'neg' }, { text: 'The mission is under way.', type: 'note' }], log: `Outcome: UN Peacekeepers accepted. Autonomy -${P.acceptAutonomy}.` };
             } }
           ]
         };
@@ -5550,7 +5611,7 @@
       return false;
     }
 
-    // What the player sees when they open the Democratic Backsliding or Government in Exile bar: a vague mood, not the numbers behind it
+    // What the player sees when they open the Democratic Backsliding or Contested Authority bar: a vague mood, not the numbers behind it
     function buildDemocracyEvent(inc) {
       if (inc.subtype === 'exile') {
         const left = Math.max(0, (inc.expires || 0) - state.month);
@@ -5571,7 +5632,7 @@
           category: 'New Special Incident',
           title: inc.name,
           body: exile
-            ? `From exile, the leader of the ${inc.party || 'opposition'} claims legitimate authority over our government, and some foreign capitals are listening. <strong>Government in Exile</strong> is now a special incident.<br><br>It grows when we rule by force and fraud, and cannot shrink. If it fills, the exiled government returns through a coup. If it has not filled after ${CONFIG.DEMOCRACY.exileMonths} months, it fades. You can click this incident's bar at any time to reopen it.`
+            ? `From exile, the leader of the ${inc.party || 'opposition'} claims legitimate authority over our government, and some foreign capitals are listening. <strong>Contested Authority</strong> is now a special incident.<br><br>It grows when we rule by force and fraud, and cannot shrink. If it fills, the exiled government returns through a coup. If it has not filled after ${CONFIG.DEMOCRACY.exileMonths} months, it fades. You can click this incident's bar at any time to reopen it.`
             : `Critics have accused our regime of abandoning the democratic principles on which our republic was founded. <strong>Democratic Backsliding</strong> is now a special incident.<br><br>We cannot answer it directly, but how we run our elections, use force and answer critics will move it. If it fills, worse will follow. If it empties, our institutions are rewarded. You can click this incident's bar at any time to reopen it.`,
           hint: '', concept: CONCEPT_NOTES.legitimacy,
           options: [{ label: 'OK', direct: () => { state.userPlaying = false; state.jumpPending.incident = true; closeModalAndAdvance(); } }]
@@ -6218,7 +6279,7 @@
         let el = list.querySelector(`.ongoing-bar[data-id="${inc.id}"]`);
         if (!el) {
           el = document.createElement('div');
-          el.className = 'ongoing-bar' + (inc.kind === 'debt' || inc.kind === 'democracy' ? ' special' : '') + (inc.kind === 'civilwar' ? ' war' : '');
+          el.className = 'ongoing-bar' + (inc.kind === 'debt' || inc.kind === 'democracy' ? ' special' : '') + (inc.kind === 'civilwar' ? ' war' : '') + (inc.kind === 'democracy' ? ' backsliding' : '');
           el.dataset.pendingFlash = '1'; // the white border flashes once no popup is covering it
           el.dataset.id = String(inc.id);
           el.setAttribute('role', 'button');
@@ -8315,7 +8376,7 @@
         list.innerHTML = '<p style="font-size: 17px;"><em>No incident was left ongoing during this game.</em></p>';
         return;
       }
-      const kindWord = inc => inc.kind === 'democracy' ? (inc.subtype === 'exile' ? 'exile claim' : 'democratic backsliding') : inc.kind === 'debt' ? 'national debt' : (inc.kind === 'civilwar' ? 'civil war' : (inc.kind === 'personnel' ? 'pay strike' : (inc.subtype === 'rebels' ? 'rebellion' : 'social pressure')));
+      const kindWord = inc => inc.kind === 'democracy' ? (inc.subtype === 'exile' ? 'government in exile' : 'democratic backsliding') : inc.kind === 'debt' ? 'national debt' : (inc.kind === 'civilwar' ? 'civil war' : (inc.kind === 'personnel' ? 'pay strike' : (inc.subtype === 'rebels' ? 'rebellion' : 'social pressure')));
       list.innerHTML = '<div class="section-label">Ongoing Incidents</div>' +
         '<p style="font-size: 16px; margin-bottom: 8px;"><em>Each numbered dotted line on the chart marks the month an incident began. Hover over a number, its line, or an entry below, on either graph, to shade the months it was ongoing.</em></p>' +
         chartIncidents.map(inc => {
