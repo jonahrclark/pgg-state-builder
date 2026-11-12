@@ -4811,7 +4811,7 @@
       // The winner governs until the next election, four years later
       state.partyInPower = winner;
       state.stats.electionLog.push({ path: state.election ? state.election.path : null, success: state.election ? state.election.success : false, winner, month: el.electionMonth });
-      democracyAfterElection(state.election ? state.election.path : null, state.election ? state.election.success : false);
+      democracyAfterElection(state.election ? state.election.path : null, state.election ? state.election.success : false, winner);
       // Terms and the next cycle count from the month the election was scheduled for, not from when this popup happened to open
       const resultMonth = el.electionMonth;
       state.terms.push({ party: winner, start: resultMonth });
@@ -5193,11 +5193,20 @@
       }
     }
 
-    function democracyAfterElection(path, success) {
-      if (path === 'stable') democracyShift(success ? 1 : -1);
-      else if (path === 'fair') democracyShift(success ? -1 : 1);
+    // Did this election push the regime toward backsliding, judged by what the player can SEE?
+    //  - A Stable Regime election counts as rigged successfully when the Technocrats win (the "Order Preserved" result), whatever the hidden roll said.
+    //  - A Fair election counts when it fails (its result says "Unfortunate"): a failed attempt at honest elections is a slide toward backsliding too.
+    function electionBackslides(e) {
+      if (e.path === 'stable') return (e.winner === undefined ? e.success : e.winner === 'tech');
+      if (e.path === 'fair') return !e.success;
+      return false;
+    }
+    function democracyAfterElection(path, success, winner) {
+      const slide = electionBackslides({ path, success, winner });
+      if (path === 'stable' || path === 'fair') democracyShift(slide ? 1 : -1);
       const D = state.democracy, log = state.stats.electionLog, n = log.length;
-      if (!D.used && n >= 2 && log[n - 1].path === 'stable' && log[n - 1].success && log[n - 2].path === 'stable' && log[n - 2].success) {
+      // Two elections in a row that both slid toward backsliding start the chain
+      if (!D.used && n >= 2 && electionBackslides(log[n - 1]) && electionBackslides(log[n - 2])) {
         D.used = true;
         D.oppDue = state.month + randInt(CONFIG.DEMOCRACY.oppositionDelay[0], CONFIG.DEMOCRACY.oppositionDelay[1]);
       }
@@ -8813,7 +8822,7 @@
       }
     }
   </script>
-<!-- Each release: change the version in the span below (id="gameVersion") to match the file name, e.g. building-a-state-v70.html -->
-<div class="copyright"><span id="gameVersion" class="game-version">v70</span><span class="copyright-text">© Jonah Clark, Comp Sci High 2026</span></div>
+<!-- Each release: change the version in the span below (id="gameVersion") to match the file name, e.g. building-a-state-v71.html -->
+<div class="copyright"><span id="gameVersion" class="game-version">v71</span><span class="copyright-text">© Jonah Clark, Comp Sci High 2026</span></div>
 </body>
 </html>
