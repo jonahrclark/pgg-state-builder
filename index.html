@@ -1540,11 +1540,15 @@
       // Opposition Leader Flees -> Democratic Backsliding -> (Strong Institutions, or Government in Exile -> a coup)
       DEMOCRACY: {
         oppositionDelay: [4, 14], backslideDelay: [6, 18],   // months after the second rigged election / after the flight
-        backslideStart: 50, exileStart: 30, exileMonths: 36,   // the exile claim lasts a little longer than before (it was 30 months)
+        backslideStart: 50, exileStart: 30, exileMonths: 36,   // (how long the exile claim lasts is set per difficulty: see DIFFICULTIES.exileMonths)
+        exileFoilCapacity: 75, exileFoilAutonomy: 10,        // with capacity at or above this, the foreign sponsored coup can fail (the chance equals the capacity number); a failure gives this much autonomy
         fill: [7, 14], ease: [3, 7],                          // how far a bar moves each time (ease is the smaller one)
         exileFill: [10, 19],                                  // the exile claim fills faster than backsliding does
+        exileEase: [1, 6],                                    // a democratic, responsive act takes this much off the exile claim
         fillHeat: 1,                                          // when Democratic Backsliding fills, every kind of heat (dissent, cholera, atrocities) rises by this much
-        exileAutonomyShare: 0.5,   // when the exiled government takes over, we lose this share of our current autonomy
+        exileAutonomyShare: 0.5, exileAutonomyExtra: 10,   // when the exiled government takes over, we lose this share of our current autonomy, plus this much more (never below 0)
+        exileDrift: 1.5,           // Contested Authority creeps up by this much every month, quietly, unless something eased it
+        coupFill: [15, 20],                                   // a coup pushes the Democratic Backsliding bar up by this much, automatically
         goodMonths: 36, strongCap: 0.06, receptiveAut: 0.08, oddsCut: 0.04   // the modifiers after a backsliding bar empties
       },
       OVERREACH: { legitHeat: 0.5, startCapacity: 55, weight: 0.6, perPoint: 0.045, reformCapacity: 10, influence: 5, censusInfluence: 3, heatMax: 4, heatDecay: 0.05, oddsPerHeat: 0.25, capPerHeat: 0.02 },
@@ -1612,6 +1616,10 @@
         failureAdvance: [8, 15],    // % progress added by a defeat
         soldierAttritionMult: 2,    // soldiers' monthly attrition ceiling is multiplied while at war
         policeAttritionMult: 1.3,
+        finalFactor: 0.6,           // when the bar hits 100% there is one last check: its odds are this share of a normal check's
+        // An offensive (launched from the Civil War window when the player opens it themselves): its odds start from a battle check's, cut down,
+        // and are always kept below the odds of any standard check. A win pushes the war back further; a loss costs more soldiers.
+        offensive: { chanceFactor: 0.55, gap: 5, min: 3, pushbackMult: 2, casualtyMult: 2 },
         victory: { autonomy: 15, capacity: 10 },
         quietMonths: 24,            // no new rebel incidents for this long after a victory
         casualtyPct: { soldiers: 0.04, police: 0.03 },
@@ -1684,7 +1692,7 @@
       timesTaxesRaised: 0,
       taxUnrestUntil: 0,
       tourismUntil: 0, tourismBoost: 0, peace: null,
-      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, foreign: { used: {}, effects: [], payoffDue: null }, democracy: { oppDue: null, backDue: null, opposition: null, used: false }, democracyNote: null, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
+      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, foreign: { used: {}, effects: [], payoffDue: null }, democracy: { oppDue: null, backDue: null, opposition: null, used: false, history: [], coupedParty: null }, democracyNote: null, deferred: [], tickerQueue: [], currentDeferKey: null, deferSeq: 0, lastReal: null, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
       taxRaiseMonths: [],
       taxRaiseCooldown: 0,
       restructureMultiplier: 1.0,
@@ -1773,7 +1781,8 @@
       usedStrong: [],
       usedMajor: [],
       runwayStreak: 0,
-      stats: { giveIns: 0, dismissals: 0, arrests: 0, electionLog: [], coups: [], civilWar: false, nothingFails: 0, attemptFails: 0, attemptWins: 0, peakFaction: { bureaucrats: 0, police: 0, soldiers: 0 } },
+      stats: { giveIns: 0, dismissals: 0, arrests: 0, electionLog: [], coups: [], civilWar: false, nothingFails: 0, attemptFails: 0, attemptWins: 0, peakFaction: { bureaucrats: 0, police: 0, soldiers: 0 },
+        regionsLost: 0, civilWarEnd: null, rebellions: 0, failedChecks: {}, violenceFails: 0, foreignTroops: 0, pacts: 0, peaceAccepted: 0, staffLost: { bureaucrats: 0, police: 0, soldiers: 0 } },
       lastAutonomyAdvice: -99,
       strikeAdvice: { count: 0, blockedUntil: -1 },
       jumpPending: { incident: false, treasury: false, hiring: false, capacity: false },
@@ -1990,11 +1999,13 @@
        ========================================================================== */
     // ----- Difficulty -----
     const DIFFICULTIES = {
-      normal: { name: 'Normal', months: 150, extra: 0, freq: 1.0, blurb: '150 months. The standard game.' },
-      hard:   { name: 'Hard', months: 200, extra: 2, freq: 1.15, blurb: '200 months. Harsher penalties.' },
-      master: { name: 'Master Statesman', months: 275, extra: 4, freq: 1.2, blurb: '275 months. Extreme penalties and more incidents.' }
+      normal: { name: 'Normal', months: 150, extra: 0, freq: 1.0, exileMonths: 36, blurb: '150 months. The standard game.' },
+      hard:   { name: 'Hard', months: 200, extra: 2, freq: 1.15, exileMonths: 60, blurb: '200 months. Harsher penalties.' },
+      master: { name: 'Master Statesman', months: 275, extra: 4, freq: 1.2, exileMonths: 84, blurb: '275 months. Extreme penalties and more incidents.' }
     };
     let selectedDifficulty = 'normal';
+    // How long Contested Authority lasts before it fades: 3 years on Normal, 5 on Hard, 7 on Master Statesman
+    function exileMonths() { return (DIFFICULTIES[selectedDifficulty] || DIFFICULTIES.normal).exileMonths; }
 
     function applyDifficulty(key) {
       selectedDifficulty = DIFFICULTIES[key] ? key : 'normal';
@@ -2149,7 +2160,7 @@
         timesTaxesRaised: 0,
       taxUnrestUntil: 0,
       tourismUntil: 0, tourismBoost: 0, peace: null,
-      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, foreign: { used: {}, effects: [], payoffDue: null }, democracy: { oppDue: null, backDue: null, opposition: null, used: false }, democracyNote: null, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
+      scrutinyUntil: 0, scrutinyOddsUntil: 0, lastLegitMonth: -99, usedOverreach: [], heat: 0, peaceHeat: { cholera: 0, atrocity: 0 }, foreign: { used: {}, effects: [], payoffDue: null }, democracy: { oppDue: null, backDue: null, opposition: null, used: false, history: [], coupedParty: null }, democracyNote: null, deferred: [], tickerQueue: [], currentDeferKey: null, deferSeq: 0, lastReal: null, goodGov: null, econSlowdownTimer: 0, econSlowdownMult: 1.0, usedLegit: [], olympics: null, scheduled: [],
       taxRaiseMonths: [],
         taxRaiseCooldown: 0,
         restructureMultiplier: 1.0,
@@ -2237,7 +2248,8 @@
       usedStrong: [],
       usedMajor: [],
       runwayStreak: 0,
-      stats: { giveIns: 0, dismissals: 0, arrests: 0, electionLog: [], coups: [], civilWar: false, nothingFails: 0, attemptFails: 0, attemptWins: 0, peakFaction: { bureaucrats: 0, police: 0, soldiers: 0 } },
+      stats: { giveIns: 0, dismissals: 0, arrests: 0, electionLog: [], coups: [], civilWar: false, nothingFails: 0, attemptFails: 0, attemptWins: 0, peakFaction: { bureaucrats: 0, police: 0, soldiers: 0 },
+        regionsLost: 0, civilWarEnd: null, rebellions: 0, failedChecks: {}, violenceFails: 0, foreignTroops: 0, pacts: 0, peaceAccepted: 0, staffLost: { bureaucrats: 0, police: 0, soldiers: 0 } },
       lastAutonomyAdvice: -99,
       strikeAdvice: { count: 0, blockedUntil: -1 },
       jumpPending: { incident: false, treasury: false, hiring: false, capacity: false },
@@ -2451,6 +2463,7 @@
       if (Math.random() >= coupChance(top)) return;
       const party = COUP_PARTY[top];
       const cancelledElection = !!state.election;   // a cycle was under way (or its result was due): the coup takes precedence over it
+      const deposed = state.partyInPower;
       state.partyInPower = party;
       state.terms.push({ party, start: state.month, coup: true });
       state.election = null;
@@ -2461,11 +2474,14 @@
       state.coupCooldown = 36;
       // The seizure of power itself costs the state some of its independence (once; the new party's monthly effects come on top of this)
       const autHit = CONFIG.FACTION.coupAutonomyHit + negExtra();
-      state.autonomy = Math.max(0, state.autonomy - autHit);
-      triggerDelta('autonomy', -autHit);
+      const lostAut = Math.min(state.autonomy, autHit);
+      state.autonomy -= lostAut;
+      deferChange('autonomy', -lostAut, 'coup:' + state.month);   // the bar drops after the coup popup is closed, not before it appears
       state.stats.coups.push({ month: state.month, group: top, party });
       logEntry(`Coup: the ${COUP_GROUP[top]} cancelled elections and put the ${PARTIES[party].name} in power. Autonomy -${autHit}.`);
-      state.popupQueue.push({ reason: 'coup', group: top, party, autHit, cancelledElection });
+      const backslide = coupBacksliding();   // ...and pushes Democratic Backsliding up by 15-20%
+      state.popupQueue.push({ reason: 'coup', group: top, party, autHit, cancelledElection, backslide, deferKey: 'coup:' + state.month });
+      democracyAfterCoup(deposed, party);   // a coup always counts toward the opposition leader chain
     }
 
     // Hiring slider notches: freeze (the snowflake), "maintain" (replaces attrition), then 500 per notch up to 2,500. Six tick lines are drawn (the snowflake has none).
@@ -3053,8 +3069,12 @@
       }
 
       // Bars
-      updateBar('capacity', state.capacity);
-      updateBar('autonomy', state.autonomy);
+      // Safety net: a held change is only meant to wait while an alert is open or still to come. If neither is true, let the bars catch up.
+      if (state.deferred.length && !modalIsOpen() && !queueHasMore() && state.phase !== 'EVENT' && state.phase !== 'RESOLVED') releaseDeferred();   // (never between two alerts of the same run)
+      updateBar('capacity', shownValue('capacity'));
+      updateBar('autonomy', shownValue('autonomy'));
+      state.lastReal = { capacity: state.capacity, autonomy: state.autonomy };   // (what the bars have been told about so far)
+      state.deferNew = { capacity: 0, autonomy: 0 };
 
       // Personnel Counts & Layoff Buttons
       setTextIfChanged('countBureaucrats', Math.round(state.bureaucrats).toLocaleString('en-US'));
@@ -3265,8 +3285,36 @@
       }
     }
 
+    /* ==========================================================================
+       Events that change a bar must not show it before the player has read about them.
+       - deferChange(): the real value changes now (the game uses it at once), but the bar and its label keep showing the old number, and the
+         little +/- ticker stays quiet, until the popup that explains the change closes.
+       - triggerDelta() called while a popup is open (an option's effect) waits, and flashes when the popups close.
+       ========================================================================== */
+    function modalIsOpen() { const b = document.getElementById('eventModalBackdrop'); return !!b && b.style.display === 'flex'; }
+    function deferChange(stat, delta, key) { if (delta) { state.deferred.push({ stat, delta, key }); state.deferNew = state.deferNew || { capacity: 0, autonomy: 0 }; state.deferNew[stat] += delta; } }
+    function deferredSum(stat) { return (state.deferred || []).reduce((a, d) => a + (d.stat === stat ? d.delta : 0), 0); }
+    // What the bar shows: the real value, minus the part of its change we are still holding back
+    function shownValue(stat) { return Math.max(0, Math.min(100, state[stat] - deferredSum(stat))); }
+    // Let go of the held changes (all of them, or those belonging to one popup): the bars catch up and the ticker flashes
+    // Is the alert that explains this held change still waiting in the queue (for example a month that stays quiet)?
+    function heldKeyQueued(key) { return state.popupQueue.some(q => q.deferKey === key || (q.id !== undefined && key === 'ongoing:' + q.id)); }
+    function releaseDeferred(key, force) {
+      // (changes whose alert is still to come stay held, so the bar, ticker and number move after that alert is closed, not before)
+      const rel = state.deferred.filter(d => (key === undefined || d.key === key) && (force || !heldKeyQueued(d.key)));
+      if (!rel.length) return;
+      state.deferred = state.deferred.filter(d => !rel.includes(d));
+      ['capacity', 'autonomy'].forEach(stat => { const sum = rel.reduce((a, d) => a + (d.stat === stat ? d.delta : 0), 0); if (sum) triggerDelta(stat, sum); });
+    }
+    function flushTickerQueue() {
+      if (!state.tickerQueue.length || modalIsOpen()) return;
+      const q = state.tickerQueue; state.tickerQueue = [];
+      q.forEach(([t, d]) => triggerDelta(t, d));
+    }
+
     function triggerDelta(type, delta) {
       if (delta === 0) return;
+      if (modalIsOpen()) { state.tickerQueue.push([type, delta]); return; }   // flashes when the popups close
       
       if (type === 'capacity') state.reconciledPendingDeltaCap += delta;
       if (type === 'autonomy') state.reconciledPendingDeltaAut += delta;
@@ -3519,6 +3567,8 @@
        ========================================================================== */
     function processMonth() {
       if (state.locked) return;
+      releaseDeferred();   // (anything whose alert is no longer coming is let go; a change whose alert is still waiting stays held until that alert has been read)
+      flushTickerQueue();
       try {
         processMonthCore();
       } catch (err) {
@@ -4012,7 +4062,11 @@
     }
 
     function recordStaffLoss(type, count) {
-      if (count > 0) state.staffLossLog.push({ month: state.month, people: count });
+      if (count > 0) {
+        state.staffLossLog.push({ month: state.month, people: count });
+        const sl = state.stats.staffLost = state.stats.staffLost || { bureaucrats: 0, police: 0, soldiers: 0 };
+        sl[type] = (sl[type] || 0) + count;
+      }
     }
 
     function explainCapacityDecline() {
@@ -4383,9 +4437,10 @@
 
       // The rebels grow bolder when we fail
       const emboldenRebels = () => {
+        state.stats.violenceFails = (state.stats.violenceFails || 0) + 1;   // (an attack we failed to stop; for the end screen)
         if (!rebels || !state.ongoing.includes(rebels)) return [];
         rebels.progress = Math.min(100, rebels.progress + 10);
-        if (rebels.progress >= 100 && !state.popupQueue.some(q => q.id === rebels.id)) state.popupQueue.push({ id: rebels.id, reason: 'final' });
+        if (rebels.progress >= 100) queueFinal(rebels);
         return [{ text: `${rebels.name} grows to ${rebels.progress}%`, type: 'neg' }];
       };
       const gain = (aut, cap) => {
@@ -4891,8 +4946,24 @@
       state.ongoing.unshift(inc); // newest on top
       state.ongoingHistory.push({ id: inc.id, name: inc.name, kind: inc.kind, subtype: inc.subtype, start: state.month, end: null });
       state.popupQueue.unshift({ id: inc.id, reason: 'new' }); // tell the player where to find it
+      state.jumpPending.incident = true;   // and when the alerts are over the page takes them to the bar, even if the notice itself is skipped
       logEntry(`Ongoing incident begins: ${inc.name}.`);
       return inc;
+    }
+
+    // An incident has reached 100%: its final page (the failure / concession) comes up next, ahead of anything else waiting, and replaces any
+    // leftover checkpoint alert for the same incident. Without this a player could close the window and keep trying the other options.
+    function queueFinal(inc) {
+      state.popupQueue = state.popupQueue.filter(q => !(q.id === inc.id && q.reason === 'benchmark'));
+      if (!state.popupQueue.some(q => q.id === inc.id && q.reason === 'final')) state.popupQueue.unshift({ id: inc.id, reason: 'final' });
+    }
+
+    // Safety net: whatever put an incident at 100%, its final page is on the way. (Nothing should ever sit full with all its options still open.)
+    function ensureFinalPages() {
+      state.ongoing.forEach(inc => {
+        if (inc.kind === 'civilwar' && (!state.civilWar || state.popupQueue.some(q => q.reason === 'civilwar_lost' || q.reason === 'civilwar_won'))) return;   // (the war's last stand has already been fought)
+        if (['social', 'personnel', 'civilwar', 'debt'].includes(inc.kind) && inc.progress >= 100) queueFinal(inc);
+      });
     }
 
     function removeOngoing(inc) {
@@ -5065,7 +5136,11 @@
       return 0;
     }
     function foreignCostNow(taxIncome) { return activeForeign().reduce((a, e) => a + foreignCostOf(e.cost, taxIncome), 0); }
-    function addForeignEffect(e) { state.foreign.effects.push(Object.assign({ start: state.month }, e, e.months ? { end: state.month + e.months } : {})); }
+    function addForeignEffect(e) {
+      if (e.label === 'Foreign troops') state.stats.foreignTroops = (state.stats.foreignTroops || 0) + 1;
+      if (e.label === 'Military pact') state.stats.pacts = (state.stats.pacts || 0) + 1;
+      state.foreign.effects.push(Object.assign({ start: state.month }, e, e.months ? { end: state.month + e.months } : {}));
+    }
 
     // Called every month: effects expire, and the hidden payoff of lending a helping hand arrives
     function rollForeign() {
@@ -5174,7 +5249,9 @@
       const n = state.democracyNote;
       if (n && n.name === name) n.delta += delta; else state.democracyNote = { name, delta };
     }
-    function democracyShift(dir) {
+    // dir > 0: a sign of rule by force and fraud. dir < 0: a democratic act that answers a real public need (a deal, a reform, a fair vote, a crisis solved).
+    // opts.elite: the easing was a favor to the elite, not an answer to the public, so it does not weaken the exile claim.
+    function democracyShift(dir, opts) {
       const D = CONFIG.DEMOCRACY;
       const back = state.ongoing.find(i => i.kind === 'democracy' && i.subtype === 'backsliding');
       const exile = state.ongoing.find(i => i.kind === 'democracy' && i.subtype === 'exile');
@@ -5190,6 +5267,17 @@
         exile.progress = Math.min(100, exile.progress + randInt(D.exileFill[0], D.exileFill[1]));
         noteDemocracy(exile.name, exile.progress - before);
         if (exile.progress >= 100) exileCoup(exile);
+      } else if (exile && dir < 0 && !(opts && opts.elite)) {
+        // A government that answers the public's needs takes the wind out of the exile's claim
+        const before = exile.progress;
+        exile.progress = Math.max(0, exile.progress - randInt(D.exileEase[0], D.exileEase[1]));
+        exile.easedMonth = state.month;   // (so it does not creep up again this month)
+        noteDemocracy(exile.name, exile.progress - before);
+        if (exile.progress <= 0) {
+          removeOngoing(exile);
+          logEntry('The exile\'s claim collapsed.');
+          queueNotice('Special Incident', 'Contested Authority Collapses', 'The exiled leader\'s claim has collapsed. A government that answers its people\'s needs gives foreign capitals little reason to listen, and the calls from exile have stopped.', CONCEPT_NOTES.legitimacy);
+        }
       }
     }
 
@@ -5201,21 +5289,51 @@
       if (e.path === 'fair') return !e.success;
       return false;
     }
+    // The chain is started by two moves in a row that both slide the regime toward backsliding. Elections count as described above; a COUP always counts.
+    function regimeStep(entry) {
+      const D = state.democracy;
+      if (!D) return;
+      D.history = D.history || [];
+      D.history.push(entry);
+      const h = D.history, n = h.length;
+      if (!D.used && n >= 2 && h[n - 1].slide && h[n - 2].slide) {
+        D.used = true;
+        // If the streak ENDS with a coup, the opposition leader will come from the party that was overthrown. If it ends with an election, he comes
+        // from one of the parties that lost that election, as always.
+        D.coupedParty = h[n - 1].kind === 'coup' ? h[n - 1].deposed : null;
+        D.oppDue = state.month + randInt(CONFIG.DEMOCRACY.oppositionDelay[0], CONFIG.DEMOCRACY.oppositionDelay[1]);
+      }
+    }
     function democracyAfterElection(path, success, winner) {
       const slide = electionBackslides({ path, success, winner });
       if (path === 'stable' || path === 'fair') democracyShift(slide ? 1 : -1);
-      const D = state.democracy, log = state.stats.electionLog, n = log.length;
-      // Two elections in a row that both slid toward backsliding start the chain
-      if (!D.used && n >= 2 && electionBackslides(log[n - 1]) && electionBackslides(log[n - 2])) {
-        D.used = true;
-        D.oppDue = state.month + randInt(CONFIG.DEMOCRACY.oppositionDelay[0], CONFIG.DEMOCRACY.oppositionDelay[1]);
-      }
+      regimeStep({ kind: 'election', slide: (path === 'stable' || path === 'fair') ? slide : false, month: state.month });
+    }
+    function democracyAfterCoup(deposed, party) {
+      regimeStep({ kind: 'coup', slide: true, deposed, party, month: state.month });
+    }
+    // A coup pushes the Democratic Backsliding bar up on its own. Returns how far it moved (0 if there is no such incident).
+    function coupBacksliding() {
+      const back = state.ongoing.find(i => i.kind === 'democracy' && i.subtype === 'backsliding');
+      if (!back) return 0;
+      const before = back.progress;
+      back.progress = Math.min(100, back.progress + randInt(CONFIG.DEMOCRACY.coupFill[0], CONFIG.DEMOCRACY.coupFill[1]));
+      const delta = back.progress - before;
+      if (back.progress >= 100) endBacksliding(back, false);
+      return delta;
     }
 
     function generateOppositionLeaderEvent() {
       const log = state.stats.electionLog, last = log[log.length - 1];
-      const losers = ['tech', 'pop', 'trad'].filter(p => !last || p !== last.winner);
-      const party = losers[Math.floor(Math.random() * losers.length)];
+      const D = state.democracy, parties = ['tech', 'pop', 'trad'];
+      let party = null;
+      // After a coup, the opposition leader is from the party that was overthrown (if it is not the one in power now)
+      if (D.coupedParty && parties.includes(D.coupedParty) && D.coupedParty !== state.partyInPower) party = D.coupedParty;
+      if (!party) {
+        const losers = parties.filter(p => (!last || p !== last.winner) && p !== state.partyInPower);
+        const pool = losers.length ? losers : parties.filter(p => !last || p !== last.winner);
+        party = pool[Math.floor(Math.random() * pool.length)];
+      }
       state.democracy.opposition = { party };   // remembered: this is the party whose leader claims the government later
       const P = PARTIES[party];
       return legitimacyEventFrom({
@@ -5247,13 +5365,26 @@
         addPeaceHeat('cholera', H);
         addPeaceHeat('atrocity', H);
         const ex = createOngoing({ kind: 'democracy', subtype: 'exile', name: 'Contested Authority', progress: CONFIG.DEMOCRACY.exileStart });
-        ex.expires = state.month + CONFIG.DEMOCRACY.exileMonths;
+        ex.expires = state.month + exileMonths();
         ex.party = P.name;
       }
     }
 
+    // A strong state (capacity 75 or more) can see off the foreign commandos: the chance they fail is the same number as our capacity
+    function exileCoupFoiled(inc, party) {
+      const P = PARTIES[party];
+      removeOngoing(inc);
+      const gain = Math.max(0, Math.min(100 - state.autonomy, CONFIG.DEMOCRACY.exileFoilAutonomy));
+      state.autonomy += gain;
+      if (gain) deferChange('autonomy', gain, 'exile:' + state.month);   // shown when the notice is closed
+      logEntry(`The foreign sponsored coup failed: the commandos were captured and executed. Autonomy +${gain}.`);
+      queueNotice('Special Incident', 'Foreign Sponsored Coup Fails', `<strong>Foreign commandos landed in the capital to overthrow the government, but our security forces were waiting for them. They were caught, captured, and executed.</strong><br><br>The exiled leader of the ${P.name} will live out the remainder of their days in a four-star hotel abroad, and nobody is listening to the calls anymore.<br><br><strong class="text-green">Autonomy +${gain}</strong>`, CONCEPT_NOTES.monopoly_violence);
+      state.popupQueue[state.popupQueue.length - 1].deferKey = 'exile:' + state.month;
+    }
+
     function exileCoup(inc) {
       const party = (state.democracy.opposition || {}).party || 'tech';
+      if (state.capacity >= CONFIG.DEMOCRACY.exileFoilCapacity && Math.random() * 100 < shownPct(state.capacity)) { exileCoupFoiled(inc, party); return; }
       const P = PARTIES[party], pe = PARTY_EFFECTS[party];
       removeOngoing(inc);
       state.partyInPower = party;
@@ -5262,13 +5393,14 @@
       state.popupQueue = state.popupQueue.filter(q => !/^election_/.test(q.reason));
       state.nextElection = { start: state.month + 36, month: state.month + 48 };
       state.coupCooldown = 36;
-      const hit = state.autonomy * CONFIG.DEMOCRACY.exileAutonomyShare;   // half of the autonomy we have right now
+      const hit = Math.min(state.autonomy, state.autonomy * CONFIG.DEMOCRACY.exileAutonomyShare + CONFIG.DEMOCRACY.exileAutonomyExtra);   // half of the autonomy we have right now, plus 10 more, down to 0
       state.autonomy = Math.max(0, state.autonomy - hit);
-      triggerDelta('autonomy', -hit);
+      deferChange('autonomy', -hit, 'exile:' + state.month);   // held until the coup notice is closed
       state.stats.coups.push({ month: state.month, group: 'exile', party });
-      logEntry(`Coup: the government in exile returned and put the ${P.name} in power. Autonomy halved (-${Math.round(hit)}).`);
+      logEntry(`Coup: the government in exile returned and put the ${P.name} in power. Autonomy -${Math.round(hit)}.`);
       const f = v => (v > 0 ? '+' : '-') + Math.abs(v).toFixed(2).replace(/0$/, '');
-      queueNotice('Special Incident', 'The Government in Exile Returns', `<strong>The exiled leader of the ${P.name} has returned at the head of a coup, and the ${P.name} now rule the country.</strong><br><br><span class="fine">${P.short} in power: capacity ${f(pe.cap)} and autonomy ${f(pe.aut)} a month. The next election season begins in three years.</span><br><br><strong class="text-red">Autonomy halved: -${Math.round(hit)}</strong>`, CONCEPT_NOTES.monopoly_violence);
+      queueNotice('Special Incident', 'Foreign Sponsored Coup', `<strong>The exiled leader of the ${P.name} has returned with foreign support. They have overthrown the government and placed the ${P.name} in power.</strong><br><br><span class="fine">${P.short} in power: capacity ${f(pe.cap)} and autonomy ${f(pe.aut)} a month. The next election season begins in three years.</span><br><br><strong class="text-red">Autonomy -${Math.round(hit)}</strong>`, CONCEPT_NOTES.monopoly_violence);
+      state.popupQueue[state.popupQueue.length - 1].deferKey = 'exile:' + state.month;   // the bar waits for this notice to be closed
     }
 
     // Called every month
@@ -5278,6 +5410,11 @@
       if (D.oppDue !== null && state.month >= D.oppDue) { D.oppDue = null; state.popupQueue.push({ reason: 'incident', category: 'Legitimacy', forceLegit: 'opposition' }); }
       if (D.backDue !== null && state.month >= D.backDue) { D.backDue = null; startBacksliding(); }
       const ex = state.ongoing.find(i => i.kind === 'democracy' && i.subtype === 'exile');
+      // Nothing eases the exile claim, so every month it quietly gains a little (no alert); the bar shows whole points
+      if (ex && state.month < ex.expires && ex.easedMonth !== state.month) {
+        ex.progress = Math.min(100, ex.progress + CONFIG.DEMOCRACY.exileDrift);
+        if (ex.progress >= 100) exileCoup(ex);
+      }
       if (ex && state.month >= ex.expires) {
         removeOngoing(ex);
         logEntry('The government in exile faded away.');
@@ -5542,8 +5679,9 @@
               addPeaceHeat('atrocity', CONFIG.PEACE.heatOnReject);   // refusing the mission: massacres and refugee flights run hotter
               return { title: 'Peacekeepers Turned Away', desc: war ? 'We denounce the mission as foreign meddling. The blue helmets stay home, and the refugees keep coming.' : 'We denounce the mission as foreign meddling. The blue helmets stay home, and the streets grow more dangerous by the week.', changes: [{ text: 'Civilians are likelier to flee, or be attacked, while the crisis lasts.', type: 'note' }, { text: 'Massacres and refugee flights run hotter', type: 'neg' }], log: 'Outcome: UN Peacekeepers turned away.' };
             } },
-            { label: 'Keep the Peace', tip: `Autonomy -${P.acceptAutonomy + (state.difficultyExtra || 0)}<br>A mission arrives, and may help or fail`, handler: () => {   // (harder difficulties add their usual extra to a penalty like this)
+            { label: 'Keep the Peace', tip: `Autonomy -${P.acceptAutonomy}<br>A mission arrives, and may help or fail`, handler: () => {   // (harder difficulties add their usual extra to a penalty like this)
               pc.accepted = true;
+              state.stats.peaceAccepted = (state.stats.peaceAccepted || 0) + 1;
               state.autonomy = Math.max(0, state.autonomy - P.acceptAutonomy);   // foreign troops on our soil: an instant hit to our independence
               triggerDelta('autonomy', -P.acceptAutonomy);
               return { title: 'Peacekeepers Arrive', desc: war ? 'Blue helmets roll into the capital, and the guns fall quiet. For now.' : 'Blue helmets arrive in the capital, and the street clashes ease. For now.', changes: [{ text: `Autonomy -${P.acceptAutonomy}`, type: 'neg' }, { text: 'The mission is under way.', type: 'note' }], log: `Outcome: UN Peacekeepers accepted. Autonomy -${P.acceptAutonomy}.` };
@@ -5637,7 +5775,7 @@
       recordStaffLoss(g, lost);
       const jump = randInt(D.progress[0], D.progress[1]);
       crisis.progress = Math.min(100, crisis.progress + jump);
-      if (crisis.progress >= 100 && !state.popupQueue.some(q => q.id === crisis.id && q.reason === 'final')) state.popupQueue.push({ id: crisis.id, reason: 'final' });
+      if (crisis.progress >= 100) queueFinal(crisis);
       const phrase = { bureaucrats: 'administration', police: 'police force', soldiers: 'armed forces' }[g];
       return {
         category: 'Special Incident',
@@ -5695,8 +5833,9 @@
         const tDrain = crossed && (inc.subtype === 'business' || inc.subtype === 'lobbyists') ? CONFIG.TAX_PENALTY.lobbyEscalation : 0;   // lobbyists left alone skim the tax base
         if (tDrain > 0) state.collectionEfficiency = Math.max(0.05, state.collectionEfficiency - tDrain / 100);
         if (aDrain > 0) {
-          state.autonomy = Math.max(0, state.autonomy - aDrain);
-          triggerDelta('autonomy', -aDrain);
+          const lostEsc = Math.min(state.autonomy, aDrain);
+          state.autonomy -= lostEsc;
+          deferChange('autonomy', -lostEsc, 'ongoing:' + inc.id);   // shown when the incident's popup is closed
           inc.pendingNote = `Letting this grow cost us Autonomy -${aDrain}${tDrain ? ` and Tax collection -${tDrain}%` : ''}.`;
         } else if (tDrain > 0) inc.pendingNote = `Letting this grow cost us Tax collection -${tDrain}%.`;
         logEntry(`${inc.name} escalates to ${inc.progress}%${aDrain > 0 ? `. Failing to contain it costs Autonomy -${aDrain}` : ''}.`);
@@ -5706,7 +5845,10 @@
       });
       found.sort((a, b) => (a.reason === 'final' ? 0 : 1) - (b.reason === 'final' ? 0 : 1));
       found.forEach(f => {
-        if (!state.popupQueue.some(q => q.id === f.id)) state.popupQueue.push(f);
+        if (f.reason === 'final') {
+          const inc = state.ongoing.find(i => i.id === f.id);
+          if (inc) queueFinal(inc);   // the final page goes first and replaces any older checkpoint alert (it used to be dropped when one was waiting)
+        } else if (!state.popupQueue.some(q => q.id === f.id)) state.popupQueue.push(f);
       });
     }
 
@@ -5716,7 +5858,8 @@
     }
 
     // Results of something the player just did (a new bar after Wait it Out, the poll update after an attack) never count against the limit of 4
-    function isConsequence(q) { return q && (q.reason === 'new' || q.reason === 'poll_update'); }
+    // Things that follow directly from what the player just did or saw: they open at once, and also after a window the player opened themselves
+    function isConsequence(q) { return q && ['new', 'poll_update', 'final', 'civilwar_check', 'civilwar_won', 'civilwar_lost'].includes(q.reason); }
     function queueHasMore() {
       return state.popupQueue.length > 0 && (state.sequenceBudget > 0 || isConsequence(state.popupQueue[0]));
     }
@@ -5726,6 +5869,7 @@
       state.popupQueue.sort((a, b) => (a.last ? 1 : 0) - (b.last ? 1 : 0));
       while (queueHasMore()) {
         const item = state.popupQueue.shift();
+        state.currentDeferKey = item.deferKey || (item.id !== undefined ? 'ongoing:' + item.id : null);
         if (!isConsequence(item)) state.sequenceBudget--;
         if (item.reason === 'notice') {
           if (item.validate && !item.validate()) { state.sequenceBudget++; continue; }
@@ -5739,6 +5883,25 @@
             concept: item.concept || CONCEPT_NOTES.legitimacy,
             options: [{ label: 'OK', direct: () => closeModalAndAdvance() }]
           });
+          return true;
+        }
+        if (item.reason === 'civilwar_check') {
+          if (!state.civilWar) { state.sequenceBudget++; continue; }
+          state.popupKind = 'incident';
+          renderEventModal(generateCivilWarCheckEvent());
+          return true;
+        }
+        if (item.reason === 'civilwar_won') {
+          state.popupKind = 'ongoing';
+          showResultModal(winCivilWar());   // the war is won: the rebels are crushed
+          openModalDOM();
+          return true;
+        }
+        if (item.reason === 'civilwar_lost') {
+          state.popupKind = 'ongoing';
+          endCivilWar();
+          showResultModal(recognitionOutcome('Lost the civil war'));
+          openModalDOM();
           return true;
         }
         if (item.reason === 'incident') {
@@ -5795,7 +5958,7 @@
           const P = PARTIES[item.party], pe = PARTY_EFFECTS[item.party];
           const f = v => (v > 0 ? '+' : '-') + Math.abs(v).toFixed(2).replace(/0$/, '');
           renderEventModal({ category: 'Special Incident', title: 'Coup', hint: '', concept: CONCEPT_NOTES.monopoly_violence,
-            body: `<strong>The ${COUP_GROUP[item.group]} have cancelled elections and put the ${P.name} in power.${item.cancelledElection ? ' Every candidate has been arrested or driven out of the country.' : ''}</strong><br><br><span class="fine">${P.short} in power: capacity ${f(pe.cap)} and autonomy ${f(pe.aut)} a month. The next election season begins in three years.</span><br><br><strong class="text-red">Autonomy -${item.autHit || CONFIG.FACTION.coupAutonomyHit}</strong>`,
+            body: `<strong>The ${COUP_GROUP[item.group]} have cancelled elections and put the ${P.name} in power.${item.cancelledElection ? ' Every candidate has been arrested or driven out of the country.' : ''}</strong><br><br><span class="fine">${P.short} in power: capacity ${f(pe.cap)} and autonomy ${f(pe.aut)} a month. The next election season begins in three years.</span><br><br><strong class="text-red">Autonomy -${item.autHit || CONFIG.FACTION.coupAutonomyHit}</strong>${item.backslide ? `<br><strong class="text-red">Democratic Backsliding +${item.backslide}%</strong>` : ''}`,
             options: [{ label: item.cancelledElection ? 'How anticlimactic...' : 'OK', direct: () => closeModalAndAdvance() }] });
           return true;
         }
@@ -5805,7 +5968,7 @@
         if (item.reason === 'election_result') { state.popupKind = 'ongoing'; showElectionResult(); return true; }
         if (item.reason === 'major') { state.popupKind = 'ongoing'; const md = generateMajorChallenge(); noteIncident(md.title); renderEventModal(md); return true; }
         const inc = state.ongoing.find(i => i.id === item.id);
-        if (!inc) continue;
+        if (!inc) { releaseDeferred('ongoing:' + item.id, true); continue; }   // (its incident is gone, so there is no alert to wait for)
         state.popupKind = 'ongoing';
         openOngoingPopup(inc, item.reason);
         return true;
@@ -5834,7 +5997,7 @@
           category: 'New Special Incident',
           title: inc.name,
           body: exile
-            ? `From exile, the leader of the ${inc.party || 'opposition'} claims legitimate authority over our government, and some foreign capitals are listening. <strong>Contested Authority</strong> is now a special incident.<br><br>It grows when we rule by force and fraud, and cannot shrink. If it fills, the exiled government returns through a coup. If it has not filled after ${CONFIG.DEMOCRACY.exileMonths} months, it fades.<br><span class=\"fine\">Tension is rising across the country: protests, unrest and crises are all likelier for a while.</span> You can click this incident's bar at any time to reopen it.`
+            ? `From exile, the leader of the ${inc.party || 'opposition'} claims legitimate authority over our government, and some foreign capitals are listening. <strong>Contested Authority</strong> is now a special incident.<br><br>It grows when we rule by force and fraud, and cannot shrink. If it fills, the exiled government returns through a coup. If it has not filled after ${exileMonths() / 12} years, it fades.<br><span class=\"fine\">Tension is rising across the country: protests, unrest and crises are all likelier for a while.</span> You can click this incident's bar at any time to reopen it.`
             : `Critics have accused our regime of abandoning the democratic principles on which our republic was founded. <strong>Democratic Backsliding</strong> is now a special incident.<br><br>We cannot answer it directly, but how we run our elections, use force and answer critics will move it. If it fills, worse will follow. If it empties, our institutions are rewarded. You can click this incident's bar at any time to reopen it.`,
           hint: '', concept: CONCEPT_NOTES.legitimacy,
           options: [{ label: 'OK', direct: () => { state.userPlaying = false; state.jumpPending.incident = true; closeModalAndAdvance(); } }]
@@ -5902,12 +6065,12 @@
       let data;
       if (inc.kind === 'personnel') data = buildPayDemandEvent(inc.subtype, inc);
       else if (inc.kind === 'debt') data = buildDebtEvent(inc);
-      else if (inc.kind === 'civilwar') data = buildCivilWarEvent(inc);
+      else if (inc.kind === 'civilwar') data = buildCivilWarEvent(inc, reason === 'click');
       else if (inc.kind === 'democracy') data = buildDemocracyEvent(inc);
       else data = buildSocialEvent(inc.info, inc);
       // When a checkpoint on the bar opened this window, say how far the incident has progressed
       if (reason !== 'click' && typeof data.body === 'string') {
-        data.body = data.body.replace(/(<em>This is a continuation[^<]*<\/em>)(<br><br>)?/, (m, a) => `${a}<br><span class="progress-note">This incident has progressed to ${Math.round(inc.progress)}%.</span><br><br>`);
+        data.body = data.body.replace(/(<em>This is a continuation[^<]*<\/em>)(<br><br>)?/, (m, a) => `${a}<br><span class="progress-note">This incident has progressed to ${Math.floor(inc.progress + 1e-9)}%.</span><br><br>`);
       }
       renderEventModal(data);
     }
@@ -6021,10 +6184,12 @@
        CIVIL WAR
        ========================================================================== */
     function recognitionOutcome(reason) {
-      return applyRegionLostPenalty(reason, {
+      const out = applyRegionLostPenalty(reason, {
         title: 'Rebels Receive Foreign Recognition',
-        desc: 'The rebels have formed their own state, and other countries now recognize it. Our army cannot cross a border the world respects.<br><br>An integral region of our great nation has been lost to rebels and traitors. One day, we shall be whole again!'
+        desc: 'The rebels have formed their own state, and other countries now recognize it. Our army cannot cross a border the world respects.<br><br>An integral region of our great nation has been lost to rebels and traitors.'
       });
+      out.okLabel = 'We will restore our former glory.';
+      return out;
     }
 
     function startCivilWar() {
@@ -6048,6 +6213,7 @@
         // A second or third rebellion does not fill the bar in one go: it makes the war fiercer from now on
         const W = CONFIG.CIVIL_WAR;
         state.civilWar.rebellions = Math.min(W.rebellionMax, (state.civilWar.rebellions || 0) + 1);
+        state.stats.rebellions = Math.max(state.stats.rebellions || 0, state.civilWar.rebellions);
         showResultDirect({
           title: 'A New Rebellion Joins the War',
           desc: `${inc.name} has taken up arms and joined the fight against us. The war now spreads faster, and the fighting breaks out more often.`,
@@ -6085,6 +6251,7 @@
             label: 'Concede',
             handler: () => {
               state.actionCounts.concede++;
+              state.stats.civilWarEnd = 'conceded';
               return recognitionOutcome('Conceded before the war');
             }
           }
@@ -6092,7 +6259,7 @@
       });
     }
 
-    function buildCivilWarEvent(inc) {
+    function buildCivilWarEvent(inc, manual) {
       const W = CONFIG.CIVIL_WAR;
       const cw = state.civilWar || { wins: 0, needed: W.winsNeeded };
       let body = `Ongoing for ${monthsLabel(state.month - inc.startedMonth)}<br><br><em>This is a continuation of an earlier incident.</em> The war goes on. We have won <strong>${cw.wins} of ${cw.needed}</strong> key checks, and the rebels are ${inc.progress}% of the way to foreign recognition. We have ${state.soldiers.toLocaleString('en-US')} soldiers and ${state.police.toLocaleString('en-US')} police.`;
@@ -6104,26 +6271,53 @@
         hint: '',
         concept: CONCEPT_NOTES.monopoly_violence,
         options: [
-          { label: 'Keep Fighting', tip: 'The war continues', direct: () => closeModalAndAdvance() },
+          // When the window reopened by itself, fighting on means another Civil War check at once. When the player opened it, it just closes.
+          manual
+            ? { label: 'Keep Fighting', tip: 'The war continues', direct: () => closeModalAndAdvance() }
+            : { label: 'Keep Fighting', tip: 'Another Civil War check follows at once', direct: () => { state.popupQueue.unshift({ reason: 'civilwar_check' }); closeModalAndAdvance(); } },
           {
             tip: 'Autonomy -20, Population -10%, 20% of all personnel lost',
             label: 'Concede',
             handler: () => {
               state.actionCounts.concede++;
+              state.stats.civilWarEnd = 'conceded';
               endCivilWar();
               return recognitionOutcome('Conceded during the war');
             }
           }
-        ]
+        ].concat(manual ? [civilWarOffensiveOption()] : [])
       };
     }
 
-    function loseCivilWar(inc) {
+    // The odds of an offensive: built from a battle check's odds (capacity, police, soldiers, strikes all count), cut down, and always below the odds
+    // of ANY standard check that could come up right now
+    function offensiveChance() {
+      const O = CONFIG.CIVIL_WAR.offensive;
+      const lowest = Math.min(...['terror', 'hostage', 'smuggling', 'battle'].map(civilWarOdds));
+      return Math.max(O.min, Math.min(Math.round(civilWarOdds('battle') * O.chanceFactor), lowest - O.gap));
+    }
+    function civilWarOffensiveOption() {
+      const chance = offensiveChance();
+      const spent = !!(state.civilWar && state.civilWar.offensiveMonth === state.month);
+      return {
+        label: spent ? 'Launch an Offensive (our forces are regrouping)' : `Launch an Offensive (${chance}% chance of success)`,
+        disabled: spent,
+        tip: `${chance}% to win<br>A win counts as a victory and pushes the war back twice as far<br>A loss costs many soldiers and Autonomy -3, and lets it advance`,
+        handler: () => {
+          if (state.civilWar) state.civilWar.offensiveMonth = state.month;   // once a month: no trying again and again while the game is paused
+          return civilWarCheckResolve({ title: 'The Offensive', ok: 'Our soldiers broke through the rebel lines and seized the initiative.', bad: 'The offensive stalled against the rebel defenses, and our losses were heavy.', cat: 'battle' }, chance, { offensive: true });
+        }
+      };
+    }
+
+    function loseCivilWar() {
+      state.stats.civilWarEnd = 'lost';
       endCivilWar();
       showResultDirect(recognitionOutcome('Lost the civil war'));
     }
 
     function winCivilWar() {
+      state.stats.civilWarEnd = 'won';
       const V = CONFIG.CIVIL_WAR.victory;
       endCivilWar();
       state.ongoing.filter(i => i.kind === 'social' && i.subtype === 'rebels').forEach(i => removeOngoing(i));
@@ -6135,7 +6329,7 @@
       state.monthsUntilNextIncident = nextIncidentGap();
       return {
         title: 'The War Is Won',
-        desc: 'The last rebel stronghold has fallen. The country is whole again, and the people and the army stand behind the government. For two years, no one will dare to rebel.',
+        desc: 'The war is won. The last rebel stronghold has fallen, and the rebels have been crushed. The country is whole again, and the people and the army stand behind the government. For two years, no one will dare to rebel.',
         changes: [
           { text: `Autonomy +${V.autonomy}`, type: 'pos' },
           { text: `Capacity +${V.capacity}`, type: 'pos' },
@@ -6171,66 +6365,81 @@
       { cat: 'battle', title: 'Battle for the Provincial Capital', desc: 'The rebels are attacking the capital of the contested province in a decisive assault.', ok: 'After hard fighting, loyal troops held the city and the rebels fell back.', bad: 'The city was lost after days of fighting, and the loyal garrison escaped with heavy casualties.', concept: CONCEPT_NOTES.legitimacy }
     ];
 
-    function generateCivilWarCheckEvent() {
-      const ev = CIVIL_WAR_CHECKS[Math.floor(Math.random() * CIVIL_WAR_CHECKS.length)];
-      const chance = civilWarOdds(ev.cat);
-      const W = CONFIG.CIVIL_WAR;
-      const catName = { terror: 'Terror Plot', hostage: 'Hostage Crisis', smuggling: 'Smuggling', battle: 'Battle' }[ev.cat];
+    // One civil war check, resolved. opts.final: the last stand at 100% (losing it means the rebels win). opts.offensive: launched by the player.
+    function civilWarCheckResolve(ev, chance, opts) {
+      opts = opts || {};
+      const W = CONFIG.CIVIL_WAR, O = W.offensive;
+      const warInc = state.ongoing.find(i => i.kind === 'civilwar');
+      if (!state.civilWar || !warInc) {
+        return { title: 'The Fighting Has Ended', desc: 'The war is over, and the incident passes without consequence.', changes: [{ text: 'No penalty', type: 'pos' }], log: 'Outcome: Civil war check after the war ended.' };
+      }
+      state.civilWar.checks = (state.civilWar.checks || 0) + 1;   // every check counts toward the chances the player is owed, won or lost
+      if (Math.random() * 100 < chance) {
+        state.civilWar.wins++;
+        const back = Math.min(warInc.progress, opts.offensive ? Math.round(W.successPushback * O.pushbackMult) : W.successPushback);
+        warInc.progress -= back;
+        state.autonomy = Math.min(100, state.autonomy + 2);
+        triggerDelta('autonomy', 2);
+        if (state.civilWar.wins >= state.civilWar.needed) state.popupQueue.unshift({ reason: 'civilwar_won' });   // the announcement comes right after this result
+        return {
+          title: opts.offensive ? 'The Offensive Succeeds' : 'Victory',
+          desc: ev.ok,
+          changes: [
+            { text: `Civil War victories ${state.civilWar.wins} of ${state.civilWar.needed}`, type: 'pos' },
+            { text: `Civil War progress -${back}%`, type: 'pos' },
+            { text: 'Autonomy +2', type: 'pos' }
+          ],
+          log: `Outcome: Civil war victory (${ev.title}${opts.final ? ', final stand' : ''}${opts.offensive ? ', offensive' : ''}). ${state.civilWar.wins} of ${state.civilWar.needed}.`
+        };
+      }
+      if (opts.final) {   // the last stand was lost: the rebels win
+        state.popupQueue.unshift({ reason: 'civilwar_lost' });
+        return {
+          title: 'The Front Collapses',
+          desc: ev.bad,
+          changes: [{ text: 'The last line has broken, and the rebels have won', type: 'neg' }],
+          log: `Outcome: Civil war final stand lost (${ev.title}).`
+        };
+      }
+      const adv = randInt(W.failureAdvance[0], W.failureAdvance[1]);
+      warInc.progress = Math.min(progressCap(warInc), warInc.progress + adv);
+      const cas = ev.cat === 'battle' ? 'soldiers' : 'police';
+      const lost = Math.min(state[cas], Math.round(state[cas] * W.casualtyPct[cas] * (opts.offensive ? O.casualtyMult : 1) / 10) * 10);
+      state[cas] = Math.max(0, state[cas] - lost);
+      recordStaffLoss(cas, lost);
+      state.autonomy = Math.max(0, state.autonomy - 3);
+      triggerDelta('autonomy', -3);
+      if (warInc.progress >= 100) queueFinal(warInc);
       return {
-        category: `Civil War Check (${catName})`,
+        title: opts.offensive ? 'The Offensive Fails' : 'Defeat',
+        desc: ev.bad,
+        changes: [
+          { text: `Civil War progress +${adv}%`, type: 'neg' },
+          { text: `${cas === 'soldiers' ? 'Soldiers' : 'Police'} -${lost.toLocaleString('en-US')}`, type: 'neg' },
+          { text: 'Autonomy -3', type: 'neg' }
+        ],
+        log: `Outcome: Civil war defeat (${ev.title}${opts.offensive ? ', offensive' : ''}). Progress +${adv}%.`
+      };
+    }
+
+    function generateCivilWarCheckEvent(opts) {
+      opts = opts || {};
+      const ev = CIVIL_WAR_CHECKS[Math.floor(Math.random() * CIVIL_WAR_CHECKS.length)];
+      const W = CONFIG.CIVIL_WAR;
+      let chance = civilWarOdds(ev.cat);
+      if (opts.final) chance = Math.max(W.offensive.min, Math.round(chance * W.finalFactor));   // the last stand is harder than a normal check
+      const catName = { terror: 'Terror Plot', hostage: 'Hostage Crisis', smuggling: 'Smuggling', battle: 'Battle' }[ev.cat];
+      const stats = `Police and soldiers matter most here (Capacity ${shownPct(state.capacity)}%, ${state.police.toLocaleString('en-US')} police, ${state.soldiers.toLocaleString('en-US')} soldiers). Victories so far: ${state.civilWar ? state.civilWar.wins : 0} of ${W.winsNeeded}.`;
+      return {
+        category: opts.final ? `Civil War: Final Stand (${catName})` : `Civil War Check (${catName})`,
         title: ev.title,
-        body: `${ev.desc}<br><br><em>Resolves automatically. Chance we win it: ${chance}%. Police and soldiers matter most here (Capacity ${shownPct(state.capacity)}%, ${state.police.toLocaleString('en-US')} police, ${state.soldiers.toLocaleString('en-US')} soldiers). Victories so far: ${state.civilWar ? state.civilWar.wins : 0} of ${W.winsNeeded}.</em>`,
+        body: opts.final
+          ? `The rebels are one push from foreign recognition. ${ev.desc}<br><br><em>Resolves automatically. This is the last stand, so our odds are worse than usual. Chance we win it: ${chance}%. If we lose it, the rebels win. ${stats}</em>`
+          : `${ev.desc}<br><br><em>Resolves automatically. Chance we win it: ${chance}%. ${stats}</em>`,
         hint: 'Think: which tool would a strong state use here?',
         concept: ev.concept,
-        autoTip: `${chance}% to win<br>A win pushes the war back<br>A loss lets it advance`,
-        autoResolveHandler: () => {
-          const warInc = state.ongoing.find(i => i.kind === 'civilwar');
-          if (!state.civilWar || !warInc) {
-            return { title: 'The Fighting Has Ended', desc: 'The war is over, and the incident passes without consequence.', changes: [{ text: 'No penalty', type: 'pos' }], log: 'Outcome: Civil war check after the war ended.' };
-          }
-          state.civilWar.checks = (state.civilWar.checks || 0) + 1;   // every check counts toward the chances the player is owed, won or lost
-          if (Math.random() * 100 < chance) {
-            state.civilWar.wins++;
-            const back = Math.min(warInc.progress, W.successPushback);
-            warInc.progress -= back;
-            state.autonomy = Math.min(100, state.autonomy + 2);
-            triggerDelta('autonomy', 2);
-            if (state.civilWar.wins >= state.civilWar.needed) {
-              const win = winCivilWar();
-              win.desc = `${ev.ok} ${win.desc}`;
-              return win;
-            }
-            return {
-              title: 'Victory',
-              desc: ev.ok,
-              changes: [
-                { text: `Civil War victories ${state.civilWar.wins} of ${state.civilWar.needed}`, type: 'pos' },
-                { text: `Civil War progress -${back}%`, type: 'pos' },
-                { text: 'Autonomy +2', type: 'pos' }
-              ],
-              log: `Outcome: Civil war victory (${ev.title}). ${state.civilWar.wins} of ${state.civilWar.needed}.`
-            };
-          }
-          const adv = randInt(W.failureAdvance[0], W.failureAdvance[1]);
-          warInc.progress = Math.min(progressCap(warInc), warInc.progress + adv);
-          const cas = ev.cat === 'battle' ? 'soldiers' : 'police';
-          const lost = Math.round(state[cas] * W.casualtyPct[cas] / 10) * 10;
-          state[cas] = Math.max(0, state[cas] - lost);
-          recordStaffLoss(cas, lost);
-          state.autonomy = Math.max(0, state.autonomy - 3);
-          triggerDelta('autonomy', -3);
-          if (warInc.progress >= 100 && !state.popupQueue.some(q => q.id === warInc.id)) state.popupQueue.push({ id: warInc.id, reason: 'final' });
-          return {
-            title: 'Defeat',
-            desc: ev.bad,
-            changes: [
-              { text: `Civil War progress +${adv}%`, type: 'neg' },
-              { text: `${cas === 'soldiers' ? 'Soldiers' : 'Police'} -${lost.toLocaleString('en-US')}`, type: 'neg' },
-              { text: 'Autonomy -3', type: 'neg' }
-            ],
-            log: `Outcome: Civil war defeat (${ev.title}). Progress +${adv}%.`
-          };
-        }
+        autoTip: opts.final ? `${chance}% to win<br>A win pushes the war back<br>A loss: the rebels win` : `${chance}% to win<br>A win pushes the war back<br>A loss lets it advance, Autonomy -3`,
+        autoResolveHandler: () => civilWarCheckResolve(ev, chance, { final: !!opts.final })
       };
     }
 
@@ -6242,7 +6451,11 @@
 
     function showFinalOngoingPopup(inc) {
       if (inc.kind === 'debt') { showSovereignDefault(inc); return; }
-      if (inc.kind === 'civilwar') { loseCivilWar(inc); return; }
+      if (inc.kind === 'civilwar') {
+        if (!state.civilWar) { loseCivilWar(inc); return; }
+        renderEventModal(generateCivilWarCheckEvent({ final: true }));   // one last stand, at worse odds; losing it hands the rebels the war
+        return;
+      }
       if (inc.kind === 'personnel') {
         const info = payDemandNames(inc.subtype);
         const chance = Math.min(100, CONFIG.ONGOING.successBase + CONFIG.ONGOING.successPerCapacity * Math.max(0, crisisCapacity() - CONFIG.ONGOING.successCapacityFloor));
@@ -6308,7 +6521,7 @@
           label: 'Make Concessions',
           tip: `Autonomy -${autLoss}${payout ? `, Treasury -${formatMoney(payout)}` : ''}${effLoss ? `, Tax collection -${effLoss}%` : ''}`,
           handler: () => {
-            state.actionCounts.concede++; democracyShift(-1);   // conceding eases it
+            state.actionCounts.concede++; if (!lobby) democracyShift(-1);   // conceding eases it (yielding to lobbyists does not)
             state.autonomy = Math.max(0, state.autonomy - autLoss);
             triggerDelta('autonomy', -autLoss);
             if (payout) payCost(payout);
@@ -6503,10 +6716,11 @@
           if (nameEl && nameEl.textContent !== label) nameEl.textContent = label;
         }
         const fill = el.querySelector('.ongoing-fill');
-        const w = `${inc.progress}%`;
+        const whole = Math.floor(inc.progress + 1e-9);   // the bar and its number move when the progress reaches a new whole point
+        const w = `${whole}%`;
         if (fill && fill.style.width !== w) fill.style.width = w;
         const pct = el.querySelector('.ongoing-pct');
-        const t = `${inc.progress}%`;
+        const t = `${whole}%`;
         if (pct && pct.textContent !== t) pct.textContent = t;
       });
 
@@ -6580,7 +6794,7 @@
     // Conceding to the old families: a small hit now, and a draining modifier that wanes. It ends the incident.
     function bendToAristocracy(inc) {
       const C = CONFIG.ARISTOCRACY;
-      state.actionCounts.concede++; democracyShift(-1);
+      state.actionCounts.concede++; democracyShift(-1, { elite: true });   // (a favor to the old families, not an answer to the public)
       state.autonomy = Math.max(0, state.autonomy - C.bendAut);
       triggerDelta('autonomy', -C.bendAut);
       state.capacity = Math.max(0, state.capacity - C.bendCap);
@@ -6636,7 +6850,7 @@
       let target = inc;
       if (!target) { target = createOngoing({ kind: 'personnel', subtype: type, name: info.bar }); target.progress = jump; }
       else target.progress = Math.min(100, target.progress + jump);
-      if (target.progress >= 100 && !state.popupQueue.some(q => q.id === target.id && q.reason === 'final')) state.popupQueue.push({ id: target.id, reason: 'final' });
+      if (target.progress >= 100) queueFinal(target);
       addFaction(breaker, CONFIG.FACTION.resolveLose);
       noteFailedAttempt(target, 'strikebreak');   // like any other option: closed for a while after failing, and every option's odds take a hit that fades
       return {
@@ -6891,9 +7105,9 @@
       "Tribes Demand Independent Courts": "Tribal Sovereignty",
       "Tribes Demand Veto": "Tribal Sovereignty",
       "Tribes Raise Militias": "Tribal Sovereignty",
-      "Provincial Governments Demand Independent Courts": "Provincial Autonomy Push",
-      "Provincial Governments Demand Veto": "Provincial Autonomy Push",
-      "Provincial Governments Raise Militias": "Provincial Autonomy Push"
+      "Provincial Governments Demand Independent Courts": "Regional Autonomy Push",
+      "Provincial Governments Demand Veto": "Regional Autonomy Push",
+      "Provincial Governments Raise Militias": "Regional Autonomy Push"
     };
 
     function ongoingLabelFor(ev) {
@@ -6980,7 +7194,7 @@
 
       const TEXT = {
         negotiate:  { name: 'Negotiate', ok: `Our administrators reached a deal with ${ev.group}.`, bad: `Talks with ${ev.group} broke down.` },
-        intimidate: { name: 'Intimidate', ok: `The police calmed ${ev.group} and restored order.`, bad: `The police crackdown on ${ev.group} backfired and sparked riots.` },
+        intimidate: { name: 'Intimidate', ok: `The police suppressed ${ev.group} and restored order.`, bad: `The police crackdown on ${ev.group} backfired and sparked riots.` },
         crackdown:  { name: 'Crackdown', ok: `The military crushed the opposition from ${ev.group} and restored control.`, bad: `The military action turned into a bloody conflict.`, money: true }
       };
       const sevFactor = CONFIG.CONCESSION_SCALE['severity' + severity] || 1;
@@ -7001,7 +7215,7 @@
       function tipFor(kind) {
         const e = effects(kind);
         const succ = [e.succCap ? `Capacity +${e.succCap}` : '', `Autonomy ${e.succAut > 0 ? '+' : ''}${e.succAut}`].filter(Boolean).join(', ');
-        const fail = waitable ? 'The crisis grows' : [`Autonomy -${e.failAut + negExtra()}`, `${e.staffName} -${e.lost.toLocaleString('en-US')}`, TEXT[kind].money ? `Treasury -${formatMoney(treasuryCost)}` : ''].filter(Boolean).join(', ');
+        const fail = waitable ? 'The crisis grows' : [`Autonomy -${e.failAut}`, `${e.staffName} -${e.lost.toLocaleString('en-US')}`, TEXT[kind].money ? `Treasury -${formatMoney(treasuryCost)}` : ''].filter(Boolean).join(', ');
         return `<strong>If successful:</strong><br>${succ}<br><strong>If we fail:</strong><br>${fail}`;
       }
 
@@ -7043,7 +7257,7 @@
           let target = inc;
           if (!target) target = createOngoingSocial(ev, forced);
           else target.progress = Math.min(100, target.progress + forced);
-          if (target.progress >= 100 && !state.popupQueue.some(q => q.id === target.id)) state.popupQueue.push({ id: target.id, reason: 'final' });
+          if (target.progress >= 100) queueFinal(target);
           noteFailedAttempt(target, kind);
           return {
             title: 'Failure',
@@ -7164,6 +7378,7 @@
         state[t] = Math.max(0, state[t] - cuts[t]);
         recordStaffLoss(t, cuts[t]);
       });
+      state.stats.regionsLost = (state.stats.regionsLost || 0) + 1;
       state.autonomy = Math.max(0, state.autonomy - R.autonomy);
       state.population -= popLoss;
       state.collectionEfficiency = Math.max(0.05, state.collectionEfficiency - R.efficiencyPts / 100);
@@ -7412,12 +7627,13 @@
       const choices = CAPACITY_CHOICES[ev.title] || CAPACITY_CHOICES_EXTRA[ev.title] || ['Do nothing', 'Respond'];
       // Doing nothing is an automatic failure. Responding rolls against our chance of success.
       const resolve = (doNothing) => {
+        if (doNothing) democracyShift(1);   // giving in lets things slide: Democratic Backsliding (or the exile claim) creeps up
           const D = CC.damage;
 
           if (!doNothing && Math.random() * 100 < chance) {
             const succLine = ev.success || CAPACITY_SUCCESS_FLAVOR[ev.title] || GENERIC_SUCCESS[Math.floor(Math.random() * GENERIC_SUCCESS.length)];
             state.stats.attemptWins++;
-            if (respGroup === 'police' || respGroup === 'soldiers') democracyShift(1);   // the police or the army resolved it
+            democracyShift(-1);   // solving a crisis (cartels, disasters, outbreaks...) eases backsliding; it never feeds it, whoever did the work
             // Any success is a small win: +1 capacity for disasters and disease, +1 autonomy for everything else
             // Solving a crisis costs a little money
             // (Arresting extortion gangs costs nothing)
@@ -7476,6 +7692,7 @@
           const upBig = n => (doNothing ? n : Math.round(n * CC.attemptFailMult));
           const FL = k => (V.flavor || {})[k] || (CAPACITY_FAIL_FLAVOR[ev.title] || CAPACITY_FLAVOR_EXTRA[ev.title] || {})[k];
           if (doNothing) state.stats.nothingFails++; else state.stats.attemptFails++;
+          { const fc = state.stats.failedChecks = state.stats.failedChecks || {}; fc[ev.cat || 'Other'] = (fc[ev.cat || 'Other'] || 0) + 1; }   // (for the end screen)
           let desc;
 
           if (kind === 'autonomy') {
@@ -7772,7 +7989,7 @@
           if (data.autoTip) {
             const wrap = document.createElement('div');
             wrap.className = 'tip-wrap';
-            wrap.setAttribute('data-tip', data.autoTip);
+            wrap.setAttribute('data-tip', difficultyTip(data.autoTip));
             wrap.appendChild(resolveBtn);
             optsContainer.appendChild(wrap);
           } else optsContainer.appendChild(resolveBtn);
@@ -7823,7 +8040,7 @@
             if (opt.tip) {
               const wrap = document.createElement('div');
               wrap.className = 'tip-wrap';
-              wrap.setAttribute('data-tip', opt.tip);
+              wrap.setAttribute('data-tip', difficultyTip(opt.tip));
               wrap.appendChild(btn);
               (sideBox || optsContainer).appendChild(wrap);
             } else {
@@ -7865,13 +8082,31 @@
     }
 
     // Harder difficulties make every negative Autonomy or Capacity result worse by a fixed number of points
+    // Hover boxes show the same numbers the result will: on Hard and Master the first autonomy hit and the first capacity hit of each outcome are
+    // bigger (see applyDifficultyExtra). Every possible outcome in a box ("If successful", "If we fail", each "or" alternative) gets the same bump.
+    function difficultyTip(tip) {
+      const X = state.difficultyExtra || 0;
+      if (!X || !tip || typeof tip !== 'string') return tip;
+      const bump = alt => {
+        const done = {};
+        return alt.replace(/(Autonomy|Capacity) -(\d+)(?![\d.])(?!\/mo)(?! a month)(?! every)/g, (m, stat, n) => {
+          if (done[stat]) return m;
+          done[stat] = true;
+          return `${stat} -${+n + X}`;
+        });
+      };
+      return tip.split(/(<strong>If successful:<\/strong>|<strong>If we fail:<\/strong>|Success: |Failure: |Fails automatically)/)
+        .map(seg => (/^(<strong>|Success: |Failure: |Fails automatically)/.test(seg) && seg.length < 40 ? seg : seg.split(' or ').map(bump).join(' or ')))
+        .join('');
+    }
+
     function applyDifficultyExtra(outcome) {
       const X = state.difficultyExtra || 0;
       if (!X || !outcome.changes) return;
       const done = {};
       outcome.changes.forEach(c => {
-        const m = /^(Autonomy|Capacity) -(\d+)(.*)$/.exec(c.text || '');
-        if (!m) return;
+        const m = /^(Autonomy|Capacity) -(\d+)(?![\d.])(.*)$/.exec(c.text || '');
+        if (!m || /a month|\/mo/.test(c.text)) return;   // (ticking monthly lines do not get the one-time extra)
         const stat = m[1].toLowerCase();
         if (done[stat]) return;
         done[stat] = true;
@@ -7890,6 +8125,14 @@
         const n = state.democracyNote, d = Math.round(n.delta);
         state.democracyNote = null;
         if (d) { outcome.changes = outcome.changes || []; outcome.changes.push({ text: `${n.name} ${d > 0 ? '+' : '-'}${Math.abs(d)}%`, type: d > 0 ? 'neg' : 'pos' }); }
+      }
+      // Whatever this choice did to the two bars has not been drawn yet: hold it back until the result is closed, so the bars and the ticker move
+      // when the player has read what happened (and not while it is still on screen)
+      if (state.lastReal) {
+        const key = 'result:' + (++state.deferSeq);
+        let held = false;
+        ['capacity', 'autonomy'].forEach(stat => { const d = state[stat] - state.lastReal[stat] - ((state.deferNew && state.deferNew[stat]) || 0); if (Math.abs(d) > 1e-9) { deferChange(stat, d, key); held = true; } });
+        if (held) { state.currentDeferKey = key; state.tickerQueue = []; }   // (the release flashes the ticker, so the queued flashes would only repeat it)
       }
       if (outcome.title === 'Failure') state.failLog.push(state.month);
       (outcome.changes || []).forEach(c => {
@@ -7942,6 +8185,13 @@
 
     function closeModalAndAdvance() {
       closeModal();
+      // Changes caused by events stay out of the bars and the ticker while any alert of this run is still to come. When the last one has been closed,
+      // the bars move and the ticker flashes.
+      ensureFinalPages();
+      const nextOpens = queueHasMore() && (!state.playerOpened || isConsequence(state.popupQueue[0]));
+      state.currentDeferKey = null;
+      if (!nextOpens) releaseDeferred();
+      flushTickerQueue();
 
       // Check Emigration halt condition
       if (state.emigrationActive && state.capacity >= CONFIG.EMIGRATION.recover && state.autonomy >= CONFIG.EMIGRATION.recover) {
@@ -7981,6 +8231,9 @@
         if (!showNextQueuedPopup()) {
           state.sequenceBudget = 999;
           state.phase = 'PAUSED';
+          releaseDeferred();   // (the alerts we expected did not need to open after all: nothing stays held)
+          flushTickerQueue();
+          runPostPopupJump();   // ...and the run of alerts is over, so the page still jumps to whatever came up (a new incident's bar, the sliders...)
           updateUI();
           resumeIfPlaying();
         }
@@ -7996,6 +8249,7 @@
     // Instant loss: Capacity AND Autonomy both at 0
     function checkInstantLoss() {
       if (state.phase !== 'ENDED' && state.capacity <= 0 && state.autonomy <= 0) {
+        releaseDeferred(undefined, true);
         triggerGameOverScreen("instant_loss");
         return true;
       }
@@ -8034,6 +8288,7 @@
     }
 
     function triggerGameOverScreen(reason) {
+      releaseDeferred(undefined, true);
       state.userPlaying = false;
       pauseClock();
       state.phase = 'ENDED';
@@ -8167,7 +8422,7 @@
       { name: 'Pakistan', cap: 42, aut: 47, text: 'a state where the military, courts, religious groups, and parties all compete for influence.' },
       { name: 'Cuba', cap: 45, aut: 82, text: 'a state with tight political control but a struggling economy and aging services.' },
       { name: 'Ukraine (2010s)', cap: 48, aut: 36, text: 'a state under pressure from wealthy business leaders and outside powers, struggling to reform.' },
-      { name: 'Greece (2012)', cap: 66, aut: 38, text: 'a capable state hit by a debt crisis, forced by its creditors to accept harsh spending cuts.' },
+      { name: 'Greece (2012)', debt: true, cap: 66, aut: 38, text: 'a capable state hit by a debt crisis, forced by its creditors to accept harsh spending cuts.' },
       { name: 'Nigeria', cap: 46, aut: 50, text: 'a state with great potential, but weak reach in many regions and strong pressure from regional leaders.' },
       { name: 'Sierra Leone (late 1990s)', cap: 10, aut: 18, text: 'a state whose government could not protect its own capital, while rebels and mercenaries fought over the diamond mines.' },
       { name: 'Liberia (1990s)', cap: 9, aut: 14, text: 'a state broken up by rival warlords, with no single force able to hold the country together.' },
@@ -8187,8 +8442,8 @@
       { name: 'Bosnia and Herzegovina', cap: 35, aut: 30, text: 'a state whose institutions are split between ethnic blocs, so decisions often stall.' },
       { name: 'Colombia (1990s)', cap: 38, aut: 35, text: 'a state fighting guerrillas and drug cartels at the same time, with parts of the country beyond its reach.' },
       { name: 'Peru (1980s)', cap: 33, aut: 40, text: 'a state facing a violent rebel movement and a collapsing economy, with weak control of the highlands.' },
-      { name: 'Argentina (2001)', cap: 55, aut: 45, text: 'a capable state that defaulted on its debts and watched street protests topple one government after another.' },
-      { name: 'Sri Lanka (2022)', cap: 45, aut: 50, text: 'a state that ran out of foreign money, could not pay for fuel and food, and saw its leader flee after mass protests.' },
+      { name: 'Argentina (2001)', debt: true, cap: 55, aut: 45, text: 'a capable state that defaulted on its debts and watched street protests topple one government after another.' },
+      { name: 'Sri Lanka (2022)', debt: true, cap: 45, aut: 50, text: 'a state that ran out of foreign money, could not pay for fuel and food, and saw its leader flee after mass protests.' },
       { name: 'Mexico (2010s)', cap: 50, aut: 42, text: 'a state with strong institutions in many places, but with drug cartels that corrupt or overpower local police and officials.' },
       { name: 'Egypt (2011)', cap: 45, aut: 55, text: 'a state whose police and army held power for decades until street protests forced the president out.' },
       { name: 'Uganda (1980s)', cap: 20, aut: 45, text: 'a state recovering from dictatorship and civil war, with an army that decided who ruled.' },
@@ -8213,6 +8468,71 @@
     ];
 
 
+    // A total collapse ends at (0, 0) whatever happened, so the failed state it resembles is chosen from the story of the run: lost wars, coups, rebels,
+    // regional and clan leaders, foreign troops, gangs, and how much the three factions held the state together.
+    function collapseFeatures() {
+      const S = state, st = S.stats || {}, hist = S.ongoingHistory || [];
+      const n = (x, k) => Math.max(0, Math.min(1, x / k));
+      const cnt = (...subs) => hist.filter(h => subs.includes(h.subtype)).length;
+      const coups = st.coups || [], sl = st.staffLost || {}, fc = st.failedChecks || {}, fac = S.faction || {}, peak = st.peakFaction || {};
+      const leaderFaction = Math.max(fac.bureaucrats || 0, fac.police || 0, fac.soldiers || 0);
+      const warLost = st.civilWarEnd === 'lost' ? 1 : (st.civilWarEnd === 'conceded' ? 0.6 : 0);
+      const regionLost = n(st.regionsLost || 0, 2);
+      return {
+        clans: n(cnt('cliques', 'tribes', 'provinces'), 3),
+        business: n(cnt('business', 'lobbyists'), 3),
+        rebels: n(S.rebelCount || 0, 3),
+        war: (st.civilWar || S.civilWar) ? 1 : 0,
+        warLost, warOngoing: S.civilWar ? 1 : 0,
+        warLostOrRegion: Math.max(warLost, regionLost),
+        rebellions: n(S.civilWar ? (S.civilWar.rebellions || 0) : (st.rebellions || 0), 3),
+        regionLost,
+        soldiersCoup: coups.some(c => c.group === 'soldiers') ? 1 : 0,
+        anyCoup: n(coups.length, 2),
+        exileCoup: coups.some(c => c.group === 'exile') ? 1 : 0,
+        foreignHelp: n((st.foreignTroops || 0) + (st.peaceAccepted || 0) + (st.pacts || 0), 2),
+        armyHigh: (peak.soldiers || 0) / 100,
+        armyWeak: n(sl.soldiers || 0, 6000),
+        policeWeak: n(sl.police || 0, 4000),
+        bureaucracyWeak: n(sl.bureaucrats || 0, 4000),
+        crime: n((fc.Crime || 0), 3),
+        violence: n(st.violenceFails || 0, 2),
+        early: Math.max(0, Math.min(1, 1 - S.month / 72)),
+        noOneInCharge: 1 - leaderFaction / 100
+      };
+    }
+    // For each failed state: [what to look for in the run, weight, how the end screen puts it]
+    const FAILED_PROFILES = {
+      'Somalia (1991)': [['clans', .35, 'clan and regional leaders who held real power'], ['noOneInCharge', .25, 'no faction strong enough to hold the state together'], ['rebels', .15, 'repeated rebel crises'], ['regionLost', .15, 'territory lost to rebels'], ['war', .10, 'a civil war']],
+      'Afghanistan (2021)': [['foreignHelp', .35, 'foreign troops and peacekeepers propping the state up'], ['armyWeak', .25, 'an army bled dry by the fighting'], ['warLost', .25, 'a war that was lost'], ['warOngoing', .15, 'a war still raging at the end']],
+      'Libya (2011)': [['exileCoup', .35, 'a foreign sponsored coup'], ['anyCoup', .20, 'coups that toppled governments'], ['war', .15, 'a civil war'], ['clans', .15, 'rival regional power centers'], ['foreignHelp', .15, 'foreign forces involved']],
+      'Lebanon (1980s)': [['foreignHelp', .30, 'foreign armies on your soil'], ['war', .20, 'a civil war'], ['clans', .20, 'rival factions with power of their own'], ['armyHigh', .10, 'a powerful military of its own'], ['rebels', .20, 'rebel crises']],
+      'Yemen (2015)': [['rebellions', .30, 'several rebellions joining the war'], ['foreignHelp', .25, 'outside powers involved'], ['warLost', .25, 'a war that was lost'], ['clans', .20, 'regional leaders pulling apart']],
+      'Sierra Leone (1997)': [['soldiersCoup', .40, 'a coup by your own army'], ['rebels', .30, 'rebel crises'], ['warLostOrRegion', .30, 'rebels taking ground']],
+      'Liberia (1990)': [['clans', .30, 'warlord-like regional leaders'], ['war', .20, 'a civil war'], ['armyHigh', .20, 'a military with a mind of its own'], ['rebels', .15, 'rebel crises'], ['business', .15, 'business interests fighting for control']],
+      'Central African Republic (2013)': [['warLost', .35, 'a war that was lost'], ['rebels', .25, 'rebel crises'], ['noOneInCharge', .20, 'no faction strong enough to hold the state together'], ['bureaucracyWeak', .20, 'a hollowed-out bureaucracy']],
+      'Mali (2012)': [['regionLost', .40, 'a region lost to rebels'], ['anyCoup', .40, 'a coup'], ['rebels', .20, 'rebel crises']],
+      'South Sudan (2013)': [['early', .50, 'a state that fell apart while still young'], ['clans', .25, 'rival regional and clan leaders'], ['rebels', .25, 'rebel crises']],
+      'Haiti (2021)': [['crime', .35, 'gangs and cartels the state failed to beat'], ['violence', .25, 'assassinations and attacks it could not stop'], ['policeWeak', .20, 'a police force too weak to hold the capital'], ['noOneInCharge', .20, 'no faction strong enough to hold the state together']],
+      'Yugoslavia (1991)': [['clans', .30, 'regions pulling apart'], ['regionLost', .25, 'a region lost'], ['armyHigh', .25, 'an army with its own agenda'], ['war', .20, 'a civil war']]
+    };
+    // The best match for this run. With no story to go on, the failed states take turns (all twelve can come up).
+    function failedStateCounterpart(list) {
+      const F = collapseFeatures();
+      const scored = list.map(c => {
+        const terms = (FAILED_PROFILES[c.name] || []).map(([k, w, label]) => ({ label, v: w * (F[k] || 0) })).filter(t => t.v > 0);
+        return { c, score: terms.reduce((a, t) => a + t.v, 0), terms };
+      }).sort((a, b) => b.score - a.score);
+      if (!scored.length || scored[0].score < 0.12) return { best: list[state.month % list.length], why: [] };
+      const ties = scored.filter(x => x.score >= scored[0].score - 0.02);
+      const pick = ties[state.month % ties.length];
+      const why = pick.terms.filter(t => t.v >= 0.07).sort((a, b) => b.v - a.v).slice(0, 3).map(t => t.label);
+      return { best: pick.c, why };
+    }
+
+    // Did the player's game ever have a National Debt Crisis? (the counterparts marked `debt: true` tell a debt-crisis story, so they need one)
+    function hadDebtCrisis() { return (state.ongoingHistory || []).some(h => h.kind === 'debt'); }
+
     function nearestCounterpart(list, cap, aut) {
       const ranked = list.map(c => ({ c, d: Math.hypot(c.cap - cap, c.aut - aut) })).sort((a, b) => a.d - b.d);
       return { best: ranked[0].c };
@@ -8223,13 +8543,15 @@
       if (!box) return;
       if (reason !== 'win' && reason !== 'weak_loss' && reason !== 'instant_loss') { box.style.display = 'none'; return; }
       const list = reason === 'win' ? COUNTERPARTS : (reason === 'instant_loss' ? FAILED_COUNTERPARTS : FRAIL_COUNTERPARTS);
-      let { best } = nearestCounterpart(list, state.capacity, state.autonomy);
-      if (reason === 'instant_loss') {   // every total collapse ends at the same point, so vary the comparison with when it happened
-        const ranked = list.map(c => ({ c, d: Math.hypot(c.cap, c.aut) })).sort((a, b) => a.d - b.d);
-        best = ranked[state.month % 6].c;
+      const pool = list.filter(c => !c.debt || hadDebtCrisis());
+      let { best } = nearestCounterpart(pool, state.capacity, state.autonomy);
+      let why = [];
+      if (reason === 'instant_loss') {   // every total collapse ends at the same point, so the comparison comes from what happened in the game
+        const r = failedStateCounterpart(list);
+        best = r.best; why = r.why;
       }
       setTextIfChanged('counterpartName', `Your state resembles: ${best.name}`);
-      const t = document.getElementById('counterpartText'); if (t) t.textContent = `Like ${best.name.replace(/^People's /, '')}, your state is ${best.text} (Capacity ${shownPct(state.capacity)}%, Autonomy ${shownPct(state.autonomy)}%.)`;
+      const t = document.getElementById('counterpartText'); if (t) t.textContent = `Like ${best.name.replace(/^People's /, '')}, your state is ${best.text} (Capacity ${shownPct(state.capacity)}%, Autonomy ${shownPct(state.autonomy)}%.)${why.length ? ` In your game: ${why.join('; ')}.` : ''}`;
       const n = document.getElementById('counterpartNote'); if (n) n.textContent = 'Real countries are far more complicated than two numbers. This is a rough teaching comparison, and autonomy here means independence from social pressure, not democracy or freedom.';
       box.style.display = 'block';
     }
@@ -8822,7 +9144,7 @@
       }
     }
   </script>
-<!-- Each release: change the version in the span below (id="gameVersion") to match the file name, e.g. building-a-state-v71.html -->
-<div class="copyright"><span id="gameVersion" class="game-version">v71</span><span class="copyright-text">© Jonah Clark, Comp Sci High 2026</span></div>
+<!-- Each release: change the version in the span below (id="gameVersion") to match the file name, e.g. building-a-state-v81.html -->
+<div class="copyright"><span id="gameVersion" class="game-version">v81</span><span class="copyright-text">© Jonah Clark, Comp Sci High 2026</span></div>
 </body>
 </html>
